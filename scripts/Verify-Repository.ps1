@@ -37,6 +37,7 @@ $requiredPaths = @(
     'README.md'
     'ReleaseNotes\0.1.0.md'
     'ReleaseNotes\0.1.1.md'
+    'ReleaseNotes\0.1.2.md'
     'scripts\Finalize-Release.ps1'
     'scripts\Publish-Release.ps1'
     'scripts\Test-PowerShellCompatibility.ps1'
@@ -217,6 +218,13 @@ foreach ($file in $repositoryFiles |
     if ($content -match $privatePathPattern) {
         $failures.Add("Machine-specific Windows user path found in $relativePath.")
     }
+    $staleSessionDockRepository =
+        'https://github.com/Makmatoe/' + 'RobloxOne'
+    if ($content.IndexOf(
+            $staleSessionDockRepository,
+            [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+        $failures.Add("Stale pre-rename SessionDock repository link found in $relativePath.")
+    }
 }
 
 try {
@@ -366,6 +374,40 @@ if (Test-Path -LiteralPath $installerSourcePath -PathType Leaf) {
             [StringComparison]::Ordinal) -lt 0) {
         $failures.Add('Release installer must enforce the fixed source allowlist and manifest hashes before dot-sourcing common code.')
     }
+
+    $copiedVerificationMarker =
+        'Installed-file verification failed for $($sourceFile.Name).'
+    $unblockMarker =
+        'Microsoft.PowerShell.Utility\Unblock-File -LiteralPath $copiedPath'
+    $copiedVerificationIndex = $installerSource.IndexOf(
+        $copiedVerificationMarker,
+        [StringComparison]::Ordinal)
+    $unblockIndex = $installerSource.IndexOf(
+        $unblockMarker,
+        [StringComparison]::Ordinal)
+    if ($copiedVerificationIndex -lt 0 -or
+        $unblockIndex -le $copiedVerificationIndex) {
+        $failures.Add('Release installer must remove download markers only after verifying the copied file hash.')
+    }
+
+    $enableSessionDockSwitch = $installerSource.IndexOf(
+        '[switch]$EnableSessionDock',
+        [StringComparison]::Ordinal)
+    $startNowBlock = $installerSource.LastIndexOf(
+        'if ($StartNow)',
+        [StringComparison]::Ordinal)
+    $enableSessionDockBlock = $installerSource.LastIndexOf(
+        'if ($EnableSessionDock)',
+        [StringComparison]::Ordinal)
+    $installedHelperCall = $installerSource.IndexOf(
+        "& (Join-Path `$installRoot 'Enable-SessionDockIntegration.ps1')",
+        [StringComparison]::Ordinal)
+    if ($enableSessionDockSwitch -lt 0 -or
+        $startNowBlock -lt 0 -or
+        $enableSessionDockBlock -le $startNowBlock -or
+        $installedHelperCall -le $enableSessionDockBlock) {
+        $failures.Add('Release installer must expose an explicit SessionDock opt-in and invoke only the installed helper after optional startup.')
+    }
 }
 
 $sessionDockHelperPath = Join-Path `
@@ -376,12 +418,17 @@ if (Test-Path -LiteralPath $sessionDockHelperPath -PathType Leaf) {
     $requiredHelperControls = @(
         'SupportsShouldProcess = $true',
         '[switch]$Force',
+        "Get-HandleScopeLocalPath -RelativePath 'SessionDock'",
         "Get-HandleScopeLocalPath -RelativePath 'RobloxOne'",
         "Join-Path `$settingsDirectory 'handlescope.json'",
+        "Join-Path `$legacySettingsDirectory 'handlescope.json'",
         '$PSCmdlet.ShouldProcess',
         '[IO.FileMode]::CreateNew',
         '$stream.Flush($true)',
-        'Move-Item -LiteralPath $temporaryPath -Destination $settingsPath -Force'
+        '[IO.File]::Move($temporaryPath, $settingsPath)',
+        '[IO.File]::Replace(',
+        '$backupPath,',
+        'Remove-HandleScopeLocalItem -Path $backupPath'
     )
     foreach ($control in $requiredHelperControls) {
         if ($sessionDockHelper.IndexOf(
@@ -392,6 +439,20 @@ if (Test-Path -LiteralPath $sessionDockHelperPath -PathType Leaf) {
     }
     if ($sessionDockHelper -match '(?i)Start-Process|Invoke-WebRequest|Invoke-RestMethod|HttpClient|connection\.json|\btoken\b') {
         $failures.Add('SessionDock helper must not start software, use the network, or access HandleScope connection credentials.')
+    }
+    $canonicalPathIndex = $sessionDockHelper.IndexOf(
+        "Get-HandleScopeLocalPath -RelativePath 'SessionDock'",
+        [StringComparison]::Ordinal)
+    $legacyPathIndex = $sessionDockHelper.IndexOf(
+        "Get-HandleScopeLocalPath -RelativePath 'RobloxOne'",
+        [StringComparison]::Ordinal)
+    if ($canonicalPathIndex -lt 0 -or
+        $legacyPathIndex -le $canonicalPathIndex) {
+        $failures.Add('SessionDock helper must select and inspect the canonical path before consulting legacy state.')
+    }
+    if ($sessionDockHelper -match '(?i)Move-Item[^\r\n]*\$settingsPath[^\r\n]*-Force' -or
+        $sessionDockHelper -match '(?i)Remove-(?:Item|HandleScopeLocalItem)[^\r\n]*\$legacySettings') {
+        $failures.Add('SessionDock helper must not force-overwrite a newly created canonical file or remove legacy settings.')
     }
 }
 

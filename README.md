@@ -15,7 +15,7 @@ automation API. It contains:
 Both applications run as the current standard user (`asInvoker`). They do not
 request administrator rights or enable `SeDebugPrivilege`. The desktop does not
 depend on the API, and the API does not open or depend on the desktop.
-[SessionDock](https://github.com/Makmatoe/RobloxOne) is a separate, optional
+[SessionDock](https://github.com/Makmatoe/SessionDock) is a separate, optional
 client and is not bundled here.
 
 Process Explorer is an interactive Sysinternals application rather than a
@@ -62,14 +62,16 @@ running anything.
 - Run `desktop\HandleScope.exe` directly for interactive inspection. It is a
   portable application.
 - From a normal, non-administrator PowerShell window, run
-  `api\Install-HandleScopeApi.ps1 -StartNow` to install and start the local API.
+  `api\Install-HandleScopeApi.ps1 -StartNow -EnableAutostart -EnableSessionDock`
+  for the easiest complete setup. Omit either opt-in switch when it is not
+  wanted.
   The API is installed for the current user under
   `%LOCALAPPDATA%\Programs\HandleScope\Api`.
-- Add `-EnableAutostart` only if you want the optional per-user, limited
-  scheduled task at sign-in. Autostart is off by default.
 
 The installer verifies the complete API inventory and every internal manifest
-hash. It does not request UAC approval. Releases are intentionally not
+hash, then removes inherited Windows download markers only from those verified
+installed copies. It does not weaken PowerShell execution policy or request UAC
+approval. Releases are intentionally not
 Authenticode-signed because this project uses no paid certificate or signing
 service; authenticity instead comes from the GitHub release source, SHA-256
 manifest, and GitHub artifact attestation. Windows may therefore show
@@ -106,16 +108,21 @@ authenticated shutdown endpoints. See [`API.md`](API.md) for the exact v1
 contract and [`docs/integrations/sessiondock.md`](docs/integrations/sessiondock.md)
 for the SessionDock client boundary.
 
-After installing the API, explicitly opt SessionDock into the integration with:
+The recommended install command above explicitly opts SessionDock in. To enable
+the integration separately later, run:
 
 ```powershell
 & "$env:LOCALAPPDATA\Programs\HandleScope\Api\Enable-SessionDockIntegration.ps1"
 ```
 
-That helper writes only `%LOCALAPPDATA%\RobloxOne\handlescope.json` with the
-local `enabled` flag. It does not start either application, copy a token, or
-modify any account data. It refuses to replace any existing setting unless the
-user explicitly re-runs it with `-Force`.
+That helper writes only `%LOCALAPPDATA%\SessionDock\handlescope.json` with the
+local `enabled` flag. If the canonical file is absent, it can safely copy the
+minimal opt-in written to the former `%LOCALAPPDATA%\RobloxOne` location by an
+older release; the legacy file is left untouched. A canonical setting always
+wins and is never replaced by legacy state. The helper does not start either
+application, copy a token, or modify account data, and it refuses to replace a
+non-minimal canonical setting unless the user explicitly re-runs it with
+`-Force`.
 
 ## Repository layout
 
