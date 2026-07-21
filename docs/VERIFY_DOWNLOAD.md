@@ -5,6 +5,10 @@ published [HandleScope GitHub release](https://github.com/Makmatoe/HandleScope/r
 Do not install files copied from an issue, pull request, chat attachment,
 mirror, or workflow-artifact page.
 
+Use a new, empty directory dedicated to one HandleScope release. Other
+projects may also publish a file named `SHA256SUMS.txt`; never reuse a checksum
+file already present in a general Downloads directory.
+
 HandleScope is intentionally distributed without Authenticode code signing so
 the project does not require a paid certificate or signing service. Windows can
 therefore display **Unknown publisher** or a SmartScreen warning. Verify the
@@ -16,7 +20,7 @@ With the GitHub CLI installed, verify the downloaded ZIP against this public
 repository's build attestation:
 
 ```powershell
-gh attestation verify .\HandleScope-0.1.0-win-x64.zip `
+gh attestation verify .\HandleScope-0.1.1-win-x64.zip `
   --repo Makmatoe/HandleScope
 ```
 
@@ -28,7 +32,7 @@ For an immutable GitHub Release, recent GitHub CLI versions can additionally
 verify the published release-asset digest:
 
 ```powershell
-gh release verify-asset v0.1.0 .\HandleScope-0.1.0-win-x64.zip `
+gh release verify-asset v0.1.1 .\HandleScope-0.1.1-win-x64.zip `
   --repo Makmatoe/HandleScope
 ```
 
@@ -47,8 +51,9 @@ Get-Content .\SHA256SUMS.txt | ForEach-Object {
 }
 
 foreach ($name in @(
-  'HandleScope-0.1.0-win-x64.zip',
-  'HandleScope-0.1.0-win-x64.spdx.json')) {
+  'HandleScope-0.1.1-win-x64.zip',
+  'HandleScope-0.1.1-win-x64.spdx.json')) {
+  if (-not $expected.ContainsKey($name)) { throw "Missing checksum entry: $name" }
   $actual = (Get-FileHash ".\$name" -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($actual -cne $expected[$name]) { throw "SHA-256 mismatch: $name" }
 }
@@ -62,8 +67,8 @@ Only after successful provenance and checksum verification, remove the ZIP's
 Windows download marker and extract it to a new local directory:
 
 ```powershell
-Unblock-File .\HandleScope-0.1.0-win-x64.zip
-Expand-Archive .\HandleScope-0.1.0-win-x64.zip -DestinationPath .\HandleScope
+Unblock-File .\HandleScope-0.1.1-win-x64.zip
+Expand-Archive .\HandleScope-0.1.1-win-x64.zip -DestinationPath .\HandleScope
 ```
 
 Do not extract into a symbolic link, junction, cloud placeholder, or existing
@@ -71,7 +76,7 @@ application directory. Then validate the complete API inventory and its
 internal per-file hashes without installing anything:
 
 ```powershell
-& .\HandleScope\HandleScope-0.1.0-win-x64\api\Install-HandleScopeApi.ps1 `
+& .\HandleScope\HandleScope-0.1.1-win-x64\api\Install-HandleScopeApi.ps1 `
   -VerifyOnly
 ```
 
