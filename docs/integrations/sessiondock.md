@@ -1,14 +1,18 @@
 # SessionDock integration
 
 [SessionDock](https://github.com/Makmatoe/RobloxOne) is an optional,
-standard-user client of HandleScope local API v1.
-The applications remain separate repositories, downloads, installs, processes,
-and release channels. HandleScope is not bundled with SessionDock.
+standard-user client of HandleScope local API v1. The applications remain
+separate repositories, downloads, installs, processes, and release channels.
+HandleScope is not bundled with SessionDock.
 
-The supported integration performs one narrow operation before a Roblox launch:
-close the exact session-specific `ROBLOX_singletonEvent` in one or more verified
-`RobloxPlayerBeta.exe` processes. HandleScope is not a general process-control
-extension point.
+The supported integration is a narrow **post-launch** action. After Roblox has
+started successfully, SessionDock must receive a positive launched process ID,
+verify that it identifies a current-session `RobloxPlayerBeta.exe`, and derive
+the session-specific `ROBLOX_singletonEvent` path from that process. It first
+asks HandleScope to close the exact event in that launched PID. Only after that
+PID-scoped close succeeds may it perform the separately authenticated,
+name-based sweep of other verified Roblox Player processes. HandleScope is not
+a general process-control extension point.
 
 ## User-control boundary
 
@@ -19,46 +23,88 @@ integration and an already-running API has published:
 %LOCALAPPDATA%\HandleScope\connection.json
 ```
 
-SessionDock must not bundle, download, install, update, uninstall, elevate, or
-silently start HandleScope. Users install HandleScope separately and may choose
-its optional limited per-user autostart task. SessionDock must remain usable
-when HandleScope is absent, stopped, incompatible, busy, or denies a request,
-and it must surface a clear local result instead of silently broadening or
-retrying the action.
+The API must therefore be running before the Roblox launch if the post-launch
+action is expected to run. SessionDock must not bundle, download, install,
+update, uninstall, elevate, or silently start HandleScope. Users install and
+start HandleScope separately and may choose its optional limited per-user
+autostart task.
+
+SessionDock remains usable when HandleScope is absent, stopped, incompatible,
+busy, or denies a request. Those conditions skip or fail only the optional
+post-launch action; they do not undo or turn an otherwise successful Roblox
+launch into a failed launch. The integration must never broaden the selector,
+kill Roblox, or use an elevated fallback.
 
 ## Required client behavior
 
-For every operation, SessionDock must:
+For every launch operation, SessionDock must:
 
-1. Read the connection document again; never cache the bearer token or port.
-2. Reject a reparse-point connection file and accept only API version `v1`.
-3. Accept only an absolute URL of the form `http://127.0.0.1:<port>` with no user
+1. Require the positive PID returned by the successful Roblox launch.
+2. Verify that PID is a live, current-session `RobloxPlayerBeta` process and
+   derive the exact Windows session number from it.
+3. Read the connection document again; never cache its bearer token or port.
+4. Reject a reparse-point connection file and accept only API version `v1`.
+5. Accept only an absolute URL of the form `http://127.0.0.1:<port>` with no user
    info, non-root path, query, or fragment.
-4. Confirm that the positive PID names a live `HandleScope.Api` process.
-5. Disable proxies, redirects, and cookies, and apply short timeouts and bounded
+6. Confirm that the connection document's separate API PID names a live
+   `HandleScope.Api` process.
+7. Disable proxies, redirects, and cookies, and apply short timeouts and bounded
    response sizes.
-6. Call `/v1/health` and require policy `roblox-singleton-event-v1` before
+8. Call `/v1/health` and require policy `roblox-singleton-event-v1` before
    sending the bearer token.
-7. Construct only the exact policy request for the current Windows session.
-8. Complete a successful dry run, then make the identical single-use execution
-   request within five seconds.
-9. Never persist, display, log, export, or send the token to any other address.
+9. Send an exact-PID request with `allProcesses: false`, completing a successful
+   dry run before the identical single-use execution request within five
+   seconds. The fixed bounded retry window exists only to allow the newly
+   launched process to create its event.
+10. Require the execution response to report the launched PID in `closed`, at
+    least one closure, and no failures.
+11. Only after step 10 succeeds, optionally read and validate a fresh connection
+    document and perform a second dry-run/execution pair using the fixed process
+    name and `allProcesses: true`.
+12. Never persist, display, log, export, or send either short-lived token to any
+    other address.
 
-The installed `Invoke-HandleScopeClose.ps1` client already implements discovery,
-health validation, safe HTTP options, policy argument checks, and the required
-two-step request. Calling the verified installed client is preferable to
-duplicating the HTTP implementation.
+SessionDock implements this HTTP v1 flow directly. The included
+`Invoke-HandleScopeClose.ps1` client demonstrates the same discovery, health
+validation, policy checks, safe HTTP options, and dry-run-before-execution
+contract for manual use; SessionDock does not invoke or copy that script.
 
 ## Explicit local setup
 
-HandleScope includes an opt-in helper after installation:
+Use a normal, non-administrator PowerShell window. Choose commands from one of
+the following locations; do not mix an extracted-bundle path with an installed
+path.
+
+### From an extracted release bundle
+
+Run these commands from the root of the extracted HandleScope release:
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\HandleScope\Api\Enable-SessionDockIntegration.ps1"
+# Opt SessionDock in. This does not install or start HandleScope.
+.\api\Enable-SessionDockIntegration.ps1
+
+# Install the per-user API and start it now.
+.\api\Install-HandleScopeApi.ps1 -StartNow
 ```
 
-It writes only `%LOCALAPPDATA%\RobloxOne\handlescope.json` with this logical
-content:
+The first command may be run before or after installation because the complete
+release bundle includes the helper. The second command creates the installed
+API location documented below.
+
+### After the per-user API is installed
+
+These absolute commands work only after installation:
+
+```powershell
+# Opt SessionDock in.
+& "$env:LOCALAPPDATA\Programs\HandleScope\Api\Enable-SessionDockIntegration.ps1"
+
+# Start an installed API that is not already running.
+& "$env:LOCALAPPDATA\Programs\HandleScope\Api\Start-HandleScopeApi.ps1"
+```
+
+The opt-in helper writes only `%LOCALAPPDATA%\RobloxOne\handlescope.json` with
+this logical content:
 
 ```json
 {
@@ -71,51 +117,68 @@ the API token or port. It performs an atomic, reparse-safe write. An existing
 setting is never replaced without explicit `-Force`; with `-Force`, it is
 replaced by exactly the minimal `enabled` setting shown above.
 
+See [`../INSTALL.md`](../INSTALL.md) for installation, start/stop, and optional
+autostart commands.
+
 ## Fixed command mapping
 
-A command copied from the HandleScope desktop has this form:
+The following installed-client examples illustrate SessionDock's two request
+selectors. They are diagnostic/manual equivalents, not commands SessionDock
+runs. Replace `1234` with the PID returned by the successful Roblox launch:
 
 ```powershell
+$launchedPid = 1234
+$sessionId = (Get-Process -Id $launchedPid -ErrorAction Stop).SessionId
+$eventPath = "\Sessions\$sessionId\BaseNamedObjects\ROBLOX_singletonEvent"
+
+# Required first operation: exact launched PID only.
+& "$env:LOCALAPPDATA\Programs\HandleScope\Api\Invoke-HandleScopeClose.ps1" `
+  -ProcessId $launchedPid `
+  -HandleName $eventPath `
+  -Type 'Event' `
+  -Access '0x001F0003' `
+  -Exact
+
+# Optional second operation, only after the PID-scoped close succeeds.
 & "$env:LOCALAPPDATA\Programs\HandleScope\Api\Invoke-HandleScopeClose.ps1" `
   -ProcessName 'RobloxPlayerBeta' `
-  -HandleName '\Sessions\<session>\BaseNamedObjects\ROBLOX_singletonEvent' `
+  -HandleName $eventPath `
   -Type 'Event' `
   -Access '0x001F0003' `
   -Exact `
   -AllProcesses
 ```
 
-If SessionDock stores the recipe as structured configuration, every field must
-remain fixed to the compiled policy:
+Every field remains fixed to the compiled policy:
 
-| HandleScope argument | SessionDock value |
-| --- | --- |
-| `-ProcessName` | `RobloxPlayerBeta` |
-| `-HandleName` | Current session's exact `ROBLOX_singletonEvent` path |
-| `-Type` | `Event` |
-| `-Access` | `0x001F0003` |
-| `-Exact` | `true` |
-| `-AllProcesses` | `true` for name-based batch handling |
+| Operation | Process selector | `allProcesses` | Handle selector |
+| --- | --- | --- | --- |
+| Required first close | Exact launched PID | `false` | Launched process session's exact `ROBLOX_singletonEvent` path |
+| Optional follow-up sweep | `RobloxPlayerBeta` | `true` | The same exact session-specific event path |
+
+Both operations use type `Event`, access `0x001F0003`, exact matching, and
+`closeAll: false`. The SessionDock `allProcesses` setting enables the optional
+follow-up sweep; it never broadens the required first PID-scoped request.
 
 Do not store a PID, raw handle value, bearer token, API port, or hard-coded
 Windows session number. PIDs and handles are reusable, and the event path must
-be derived from the active interactive session at operation time. Do not expose
+be derived from the verified launched process at operation time. Do not expose
 `closeAll`, partial matching, arbitrary process names, object types, access
 masks, or paths as integration settings; the server rejects them.
 
 ## Failure behavior
 
-Treat a missing or stale connection file, unexpected health policy, Roblox
-executable trust or HandleScope install problem, `401`, `403`, `404`, `409`, `429`, timeout, or malformed
-response as a denied integration operation. Do not fall back to killing Roblox,
-closing a raw handle, using an administrator helper, or invoking an unrelated
-HandleScope copy.
+Treat a missing or stale connection file, unavailable launched PID, unexpected
+health policy, Roblox executable trust or HandleScope install problem, `401`,
+`403`, `404`, `409`, `429`, timeout, or malformed response as a denied optional
+post-launch operation. Do not fall back to killing Roblox, closing a raw handle,
+using an administrator helper, or invoking an unrelated HandleScope copy.
 
-Whether SessionDock cancels the associated Roblox launch or lets the user
-continue without the HandleScope action is a SessionDock product decision that
-must be explicit in its UI. It must never report that HandleScope succeeded
-unless the execution response is `200`, reports at least one closure, and
-reports no failures.
+The PID-scoped operation succeeds only when execution returns `200`, reports at
+least one closure, includes the launched PID in `closed`, and reports no
+failures. The optional all-process sweep is a separate result and must not be
+used to claim that the PID-scoped operation succeeded. A HandleScope failure
+must not be reported as failure of the Roblox process that already launched.
 
 See [`../../API.md`](../../API.md) for the exact request contract and
 [`../THREAT_MODEL.md`](../THREAT_MODEL.md) for residual same-user risks.
