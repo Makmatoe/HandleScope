@@ -54,11 +54,15 @@ after verifying its path. The new standard-user installer intentionally does
 not modify an unexpected older task or request UAC approval on its behalf.
 
 From a normal PowerShell window, change to the extracted `api` directory and
-run:
+run this recommended one-command setup:
 
 ```powershell
-.\Install-HandleScopeApi.ps1 -StartNow
+.\Install-HandleScopeApi.ps1 -StartNow -EnableAutostart -EnableSessionDock
 ```
+
+Omit `-EnableAutostart` if the API should not start automatically at sign-in,
+and omit `-EnableSessionDock` if SessionDock should not be opted in. Both
+options are explicit; neither is enabled silently.
 
 The installer independently requires the fixed nine-file API inventory,
 rejects linked source paths, checks manifest hashes, stages and re-verifies the
@@ -72,17 +76,24 @@ The operation is per-user and does not request UAC approval. Do not use
 `-ExecutionPolicy Bypass`; verify and unblock the ZIP before extraction, or
 follow the policy set by your organization or administrator.
 
-Autostart is off on a first installation. To opt into it, add
-`-EnableAutostart`:
+After each staged file matches the reviewed release manifest, the installer
+removes only that installed copy's Windows download marker. This does not
+change PowerShell execution policy. It prevents a marker inherited from the
+ZIP from making the verified installed lifecycle scripts look remote under
+`RemoteSigned`.
+
+Autostart is off on a first installation. To install and start without
+autostart or SessionDock integration, use:
 
 ```powershell
-.\Install-HandleScopeApi.ps1 -StartNow -EnableAutostart
+.\Install-HandleScopeApi.ps1 -StartNow
 ```
 
-This creates one scheduled task for the current Windows SID and interactive
-logon. The task uses `RunLevel Limited`; it does not run as administrator,
-another user, a service account, or session 0. Installing an update without the
-switch does not remove an autostart task that was already enabled.
+When `-EnableAutostart` is supplied, the installer creates one scheduled task
+for the current Windows SID and interactive logon. The task uses `RunLevel
+Limited`; it does not run as administrator, another user, a service account, or
+session 0. Installing an update without the switch does not remove an autostart
+task that was already enabled.
 
 The API publishes its rotating local connection credential under
 `%LOCALAPPDATA%\HandleScope\connection.json`. Treat that file as secret and do
@@ -91,9 +102,10 @@ Roblox singleton policy and client contract.
 
 ## Connect SessionDock
 
-[SessionDock](https://github.com/Makmatoe/RobloxOne) remains a separate
+[SessionDock](https://github.com/Makmatoe/SessionDock) remains a separate
 download and never installs or starts HandleScope itself. After the API is
-installed, explicitly enable the local v1 integration with:
+installed, `-EnableSessionDock` on the install command is the easiest explicit
+opt-in. To enable it separately later, run:
 
 ```powershell
 & "$env:LOCALAPPDATA\Programs\HandleScope\Api\Enable-SessionDockIntegration.ps1"
@@ -102,14 +114,16 @@ installed, explicitly enable the local v1 integration with:
 The helper writes only this non-secret file:
 
 ```text
-%LOCALAPPDATA%\RobloxOne\handlescope.json
+%LOCALAPPDATA%\SessionDock\handlescope.json
 ```
 
 Its complete content is `{"enabled":true}` (formatting aside). It does not
 start HandleScope, start SessionDock, copy the connection token, or inspect or
-modify Roblox accounts. If an existing file has the integration disabled or
-uses an older format, the helper requires the explicit `-Force` switch before
-replacing that file with the minimal setting.
+modify Roblox accounts. If the canonical file is absent, an older minimal
+opt-in at `%LOCALAPPDATA%\RobloxOne\handlescope.json` is copied to the canonical
+path without deleting legacy data. Legacy state never overwrites a canonical
+file. If the canonical file has the integration disabled or uses a non-minimal
+format, the helper requires the explicit `-Force` switch before replacing it.
 
 Start the API separately before launching through SessionDock:
 

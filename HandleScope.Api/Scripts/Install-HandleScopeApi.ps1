@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [switch]$EnableAutostart,
+    [switch]$EnableSessionDock,
     [switch]$StartNow,
     [switch]$AllowDowngrade,
     [switch]$VerifyOnly
@@ -175,6 +176,12 @@ try {
             $copiedHash -cne $manifestEntries[$relativePath]) {
             throw "Installed-file verification failed for $($sourceFile.Name)."
         }
+
+        # Copy-Item can preserve the ZIP's Mark of the Web on some Windows
+        # configurations. Remove it only after the copied bytes have matched
+        # the reviewed release manifest, so installed lifecycle scripts run
+        # normally under RemoteSigned without changing execution policy.
+        Microsoft.PowerShell.Utility\Unblock-File -LiteralPath $copiedPath
     }
     if (Test-Path -LiteralPath $installRoot) {
         $installRoot = Assert-HandleScopeLocalTreeSafe -Path $installRoot
@@ -254,6 +261,10 @@ if ($EnableAutostart) {
 
 if ($StartNow) {
     & (Join-Path $installRoot 'Start-HandleScopeApi.ps1')
+}
+
+if ($EnableSessionDock) {
+    & (Join-Path $installRoot 'Enable-SessionDockIntegration.ps1')
 }
 
 Write-Host "HandleScope API installed for the current user at $installRoot"

@@ -53,9 +53,13 @@ account identity and the local API executable path. Autostart is optional and
 off by default.
 
 Running `Enable-SessionDockIntegration.ps1` is also optional. It writes only
-`%LOCALAPPDATA%\RobloxOne\handlescope.json` with an `enabled` boolean. It does
-not read or modify SessionDock accounts, history, favorites, Roblox cookies, or
-the HandleScope bearer token, and it does not launch either application.
+`%LOCALAPPDATA%\SessionDock\handlescope.json` with an `enabled` boolean. When
+that canonical file is absent, the helper may read the former
+`%LOCALAPPDATA%\RobloxOne\handlescope.json` to recognize and copy the old
+minimal opt-in. It does not delete or modify legacy data, let legacy state
+overwrite a canonical setting, read or modify SessionDock accounts, history,
+favorites, or Roblox cookies, access the HandleScope bearer token, or launch
+either application.
 
 Official builds are compressed, self-contained .NET single-file applications.
 On launch, .NET may extract bundled native runtime components beneath the

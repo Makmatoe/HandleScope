@@ -1,6 +1,6 @@
 # SessionDock integration
 
-[SessionDock](https://github.com/Makmatoe/RobloxOne) is an optional,
+[SessionDock](https://github.com/Makmatoe/SessionDock) is an optional,
 standard-user client of HandleScope local API v1. The applications remain
 separate repositories, downloads, installs, processes, and release channels.
 HandleScope is not bundled with SessionDock.
@@ -80,16 +80,12 @@ path.
 Run these commands from the root of the extracted HandleScope release:
 
 ```powershell
-# Opt SessionDock in. This does not install or start HandleScope.
-.\api\Enable-SessionDockIntegration.ps1
-
-# Install the per-user API and start it now.
-.\api\Install-HandleScopeApi.ps1 -StartNow
+# Install the per-user API, start it, and explicitly opt SessionDock in.
+.\api\Install-HandleScopeApi.ps1 -StartNow -EnableSessionDock
 ```
 
-The first command may be run before or after installation because the complete
-release bundle includes the helper. The second command creates the installed
-API location documented below.
+Add `-EnableAutostart` if the API should also start automatically at sign-in.
+The install command creates the installed API location documented below.
 
 ### After the per-user API is installed
 
@@ -103,7 +99,7 @@ These absolute commands work only after installation:
 & "$env:LOCALAPPDATA\Programs\HandleScope\Api\Start-HandleScopeApi.ps1"
 ```
 
-The opt-in helper writes only `%LOCALAPPDATA%\RobloxOne\handlescope.json` with
+The opt-in helper writes only `%LOCALAPPDATA%\SessionDock\handlescope.json` with
 this logical content:
 
 ```json
@@ -113,7 +109,11 @@ this logical content:
 ```
 
 It does not start either application, access SessionDock account data, or copy
-the API token or port. It performs an atomic, reparse-safe write. An existing
+the API token or port. It performs an atomic, reparse-safe write. If the
+canonical file is absent, the helper recognizes the former
+`%LOCALAPPDATA%\RobloxOne\handlescope.json` only when it contains exactly this
+minimal opt-in, then copies the opt-in without deleting or modifying legacy
+data. A canonical setting always takes precedence. A non-minimal canonical
 setting is never replaced without explicit `-Force`; with `-Force`, it is
 replaced by exactly the minimal `enabled` setting shown above.
 

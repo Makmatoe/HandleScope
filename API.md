@@ -16,7 +16,7 @@ Extract the complete official release ZIP. From a normal, non-administrator
 PowerShell window in the extracted `api` directory, run:
 
 ```powershell
-.\Install-HandleScopeApi.ps1 -StartNow
+.\Install-HandleScopeApi.ps1 -StartNow -EnableAutostart -EnableSessionDock
 ```
 
 After the release ZIP's GitHub attestation and external SHA-256 checksum have
@@ -27,11 +27,11 @@ hashes, then installs the API for the current user at:
 %LOCALAPPDATA%\Programs\HandleScope\Api
 ```
 
-Autostart is disabled by default. To opt into a current-user, limited-privilege
-scheduled task at sign-in, install with both switches:
+Autostart and SessionDock integration are disabled by default. Omit either
+corresponding switch when that opt-in is not wanted. To install and start only:
 
 ```powershell
-.\Install-HandleScopeApi.ps1 -StartNow -EnableAutostart
+.\Install-HandleScopeApi.ps1 -StartNow
 ```
 
 The installed lifecycle scripts are:
@@ -47,6 +47,9 @@ Do not use `-ExecutionPolicy Bypass`, run the scripts as administrator, or move
 individual files out of the release bundle. Verify and unblock the downloaded
 ZIP before extraction, or follow your organization's PowerShell policy. See
 [`docs/INSTALL.md`](docs/INSTALL.md) for update and uninstall guidance.
+After verifying each installed file against the release manifest, the installer
+removes its inherited Windows download marker so installed scripts work under
+normal `RemoteSigned` policy without weakening that policy.
 
 ## Connection discovery
 
@@ -213,13 +216,17 @@ request.
 The complete client boundary is in
 [`docs/integrations/sessiondock.md`](docs/integrations/sessiondock.md).
 
-After installing the API, a user can explicitly enable SessionDock's side of
-that boundary without copying a token or endpoint:
+Passing `-EnableSessionDock` to the installer is the simplest explicit opt-in.
+After installation, a user can also enable SessionDock's side of that boundary
+separately without copying a token or endpoint:
 
 ```powershell
 & "$env:LOCALAPPDATA\Programs\HandleScope\Api\Enable-SessionDockIntegration.ps1"
 ```
 
-The helper writes only `%LOCALAPPDATA%\RobloxOne\handlescope.json` with
-`enabled: true`. It never starts either application and requires `-Force` before
-replacing any existing non-minimal setting.
+The helper writes only `%LOCALAPPDATA%\SessionDock\handlescope.json` with
+`enabled: true`. When no canonical setting exists, it recognizes and copies the
+former `%LOCALAPPDATA%\RobloxOne\handlescope.json` only when that legacy file is
+the minimal enabled opt-in. It never deletes legacy data, starts either
+application, or lets legacy state overwrite a canonical setting. Replacing an
+existing non-minimal canonical setting requires explicit `-Force`.

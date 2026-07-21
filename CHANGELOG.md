@@ -6,6 +6,21 @@ Notable user-visible and security-relevant changes are documented here.
 
 - No changes yet.
 
+## 0.1.2 - 2026-07-21
+
+- The API installer now removes inherited Windows download markers only after
+  each installed file matches the reviewed release manifest, preventing
+  verified installed scripts from being blocked by `RemoteSigned`.
+- Added `-EnableSessionDock` to the API installer so installation, startup,
+  optional autostart, and explicit SessionDock opt-in can be completed with one
+  command.
+- Corrected the integration helper and documentation to use the canonical
+  `%LOCALAPPDATA%\SessionDock\handlescope.json` location and current SessionDock
+  repository. An older minimal opt-in is copied only when the canonical file is
+  absent; legacy data is preserved and cannot overwrite canonical settings.
+- Expanded Windows PowerShell regression coverage for canonical precedence,
+  safe legacy copying, explicit replacement, and temporary-file cleanup.
+
 ## 0.1.1 - 2026-07-21
 
 - Fixed the SessionDock opt-in helper when it is run again after the minimal
