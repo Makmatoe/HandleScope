@@ -238,6 +238,38 @@ try {
     if ($signatureMode.Count -ne 1 -or $signatureMode[0].value -cne 'require') {
         $failures.Add('NuGet.Config must require package signature validation.')
     }
+    $trustedRepositories = @($nugetConfiguration.configuration.trustedSigners.repository)
+    $expectedNuGetFingerprints = @(
+        '0E5F38F57DC1BCC806D8494F4F90FBCEDD988B46760709CBEEC6F4219AA6157D',
+        '5A2901D6ADA3D18260B9C6DFE2133C95D74B9EEF6AE0E5DC334C8454D1477DF4',
+        '1F4B311D9ACC115C8DC8018B5A49E00FCE6DA8E2855F9F014CA6F34570BC482D'
+    ) | Sort-Object
+    $actualNuGetFingerprints = @(
+        $trustedRepositories.certificate |
+            ForEach-Object { $_.fingerprint } |
+            Sort-Object
+    )
+    $fingerprintDifference = @(
+        Compare-Object `
+            -ReferenceObject $expectedNuGetFingerprints `
+            -DifferenceObject $actualNuGetFingerprints `
+            -CaseSensitive
+    )
+    $invalidCertificatePolicy = @(
+        $trustedRepositories.certificate |
+            Where-Object {
+                $_.hashAlgorithm -cne 'SHA256' -or
+                $_.allowUntrustedRoot -cne 'false'
+            }
+    )
+    if ($trustedRepositories.Count -ne 1 -or
+        $trustedRepositories[0].name -cne 'nuget.org' -or
+        $trustedRepositories[0].serviceIndex -cne 'https://api.nuget.org/v3/index.json' -or
+        $fingerprintDifference.Count -ne 0 -or
+        $actualNuGetFingerprints.Count -ne $expectedNuGetFingerprints.Count -or
+        $invalidCertificatePolicy.Count -ne 0) {
+        $failures.Add('NuGet.Config must trust exactly the reviewed NuGet.org repository signing certificates.')
+    }
 }
 catch {
     $failures.Add("NuGet.Config is not valid XML: $($_.Exception.Message)")
