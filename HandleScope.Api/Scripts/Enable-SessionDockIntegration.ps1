@@ -38,16 +38,7 @@ if (Test-Path -LiteralPath $settingsPath) {
         }
     }
 
-    $propertyNames = if ($null -eq $existing) {
-        @()
-    }
-    else {
-        @($existing.PSObject.Properties.Name)
-    }
-    if ($propertyNames.Count -eq 1 -and
-        $propertyNames[0] -ceq 'enabled' -and
-        $existing.enabled -is [bool] -and
-        $existing.enabled -eq $true) {
+    if (Test-HandleScopeMinimalSessionDockSetting -Setting $existing) {
         Write-Host "SessionDock integration is already enabled at $settingsPath"
         return
     }

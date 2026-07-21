@@ -16,6 +16,12 @@ $solutionPath = Join-Path $repositoryRoot 'HandleScope.slnx'
 $integrationProject = Join-Path `
     $repositoryRoot `
     'HandleScope.IntegrationTests\HandleScope.IntegrationTests.csproj'
+$powerShellCompatibilityTest = Join-Path `
+    $repositoryRoot `
+    'scripts\Test-PowerShellCompatibility.ps1'
+$windowsPowerShell = Join-Path `
+    $env:SystemRoot `
+    'System32\WindowsPowerShell\v1.0\powershell.exe'
 
 function Invoke-DotNet {
     param(
@@ -36,6 +42,17 @@ if ($PSVersionTable.PSEdition -eq 'Core' -and -not $IsWindows) {
 Push-Location $repositoryRoot
 try {
     & (Join-Path $PSScriptRoot 'Verify-Repository.ps1')
+
+    if (-not (Test-Path -LiteralPath $windowsPowerShell -PathType Leaf)) {
+        throw 'Windows PowerShell is required for the compatibility regression test.'
+    }
+    & $windowsPowerShell `
+        -NoProfile `
+        -NonInteractive `
+        -File $powerShellCompatibilityTest
+    if ($LASTEXITCODE -ne 0) {
+        throw "Windows PowerShell compatibility validation failed with exit code $LASTEXITCODE."
+    }
 
     Invoke-DotNet -Arguments @(
         'restore'

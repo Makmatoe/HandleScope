@@ -6,6 +6,16 @@ Notable user-visible and security-relevant changes are documented here.
 
 - No changes yet.
 
+## 0.1.1 - 2026-07-21
+
+- Fixed the SessionDock opt-in helper when it is run again after the minimal
+  `{"enabled":true}` setting already exists in Windows PowerShell 5.1 strict
+  mode.
+- Added an explicit Windows PowerShell compatibility regression test for the
+  minimal SessionDock setting check.
+- Clarified that release downloads must use a dedicated directory and made
+  checksum verification distinguish a missing entry from a hash mismatch.
+
 ## 0.1.0 - 2026-07-21
 
 - Initial reviewed Windows x64 release structure.

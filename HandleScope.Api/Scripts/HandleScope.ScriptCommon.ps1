@@ -11,6 +11,24 @@ function Test-HandleScopeAdministratorToken {
         [Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function Test-HandleScopeMinimalSessionDockSetting {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]
+        [object]$Setting
+    )
+
+    if ($null -eq $Setting) {
+        return $false
+    }
+
+    $propertyNames = @($Setting.PSObject.Properties.Name)
+    return $propertyNames.Length -eq 1 -and
+        $propertyNames[0] -ceq 'enabled' -and
+        $Setting.enabled -is [bool] -and
+        $Setting.enabled -eq $true
+}
+
 function Assert-HandleScopeFileSystemItemNotLink {
     [CmdletBinding()]
     param(
