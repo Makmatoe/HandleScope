@@ -1,0 +1,206 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: handlescope-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-and-package:
+    name: Validate, build, test, and package
+    runs-on: windows-2025
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      tag: ${{ steps.metadata.outputs.tag }}
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch the protected main branch
+        shell: pwsh
+        run: git fetch --no-tags origin main:refs/remotes/origin/main
+
+      - name: Install the pinned .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.300'
+          cache: true
+          cache-dependency-path: |
+            **/packages.lock.json
+
+      - name: Validate release identity and policy
+        id: metadata
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+        run: |
+          if ($env:SOURCE_REPOSITORY -cne 'Makmatoe/HandleScope') {
+            throw 'This workflow may publish only from Makmatoe/HandleScope.'
+          }
+          ./scripts/Verify-Release.ps1 `
+            -Tag $env:RELEASE_TAG `
+            -RequireTagAtHead `
+            -RequireMainAtHead `
+            -RequireCleanWorkingTree
+          [xml] $properties = Get-Content Directory.Build.props -Raw
+          $versions = @($properties.SelectNodes('/Project/PropertyGroup/Version') | ForEach-Object { $_.InnerText } | Where-Object { $_ })
+          if ($versions.Count -ne 1) { throw 'Expected exactly one project version.' }
+          "version=$($versions[0])" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "tag=$env:RELEASE_TAG" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Build, test, and stage reviewed files
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.metadata.outputs.version }}
+        run: ./scripts/Publish-Release.ps1 -Version $env:RELEASE_VERSION
+
+      - name: Finalize and independently verify assets
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          ./scripts/Finalize-Release.ps1 `
+            -InputDirectory artifacts/release-input `
+            -OutputDirectory artifacts/release-output
+          ./scripts/Verify-ReleaseAssets.ps1 `
+            -Directory artifacts/release-output `
+            -Version $env:RELEASE_VERSION
+
+      - name: Upload immutable verified assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-assets-${{ github.sha }}
+          path: artifacts/release-output
+          if-no-files-found: error
+          include-hidden-files: false
+          compression-level: 0
+          retention-days: 1
+
+  attest-and-publish:
+    name: Reverify, attest, and publish
+    needs: validate-and-package
+    runs-on: windows-2025
+    timeout-minutes: 20
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Check out the exact tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download verified release assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-assets-${{ github.sha }}
+          path: artifacts/release-output
+
+      - name: Reverify release assets
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.validate-and-package.outputs.version }}
+        run: >-
+          ./scripts/Verify-ReleaseAssets.ps1
+          -Directory artifacts/release-output
+          -Version $env:RELEASE_VERSION
+
+      - name: Prepare transparent release notes
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.validate-and-package.outputs.version }}
+        run: |
+          $sourcePath = "ReleaseNotes/$env:RELEASE_VERSION.md"
+          $sourceNotes = [IO.File]::ReadAllText($sourcePath).TrimEnd()
+          $releaseNotes = $sourceNotes + @'
+
+
+          ## Download authenticity
+
+          HandleScope is intentionally distributed without Authenticode code signing so publishing requires no paid certificate or signing service. Verify the SHA-256 manifest and GitHub artifact attestation before running the ZIP. Windows may display an Unknown publisher or SmartScreen warning; do not treat that warning as proof of either safety or compromise.
+          '@
+          New-Item -ItemType Directory artifacts -Force | Out-Null
+          [IO.File]::WriteAllText(
+            'artifacts/release-notes.md',
+            $releaseNotes.TrimEnd() + "`n",
+            [Text.UTF8Encoding]::new($false))
+
+      - name: Create a fresh draft GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate-and-package.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate-and-package.outputs.version }}
+        run: |
+          $tag = $env:RELEASE_TAG
+          gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName 1>$null 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            throw "Release $tag already exists. Refusing to reuse or replace release state."
+          }
+          gh release create $tag --repo $env:GITHUB_REPOSITORY --verify-tag --draft `
+            --title "HandleScope $env:RELEASE_VERSION" `
+            --notes-file artifacts/release-notes.md
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to create the fresh draft release.' }
+
+      - name: Upload and redownload draft assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate-and-package.outputs.tag }}
+        run: |
+          $assets = @(Get-ChildItem artifacts/release-output -File | Sort-Object Name)
+          [string[]] $assetPaths = $assets.FullName
+          & gh release upload $env:RELEASE_TAG @assetPaths --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to upload draft release assets.' }
+          New-Item -ItemType Directory artifacts/verified-release -Force | Out-Null
+          gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY `
+            --dir artifacts/verified-release --pattern '*'
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to redownload draft release assets.' }
+
+      - name: Verify redownloaded assets byte for byte
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.validate-and-package.outputs.version }}
+        run: |
+          ./scripts/Verify-ReleaseAssets.ps1 `
+            -Directory artifacts/verified-release `
+            -Version $env:RELEASE_VERSION
+          $local = @(Get-ChildItem artifacts/release-output -File | Sort-Object Name)
+          $remote = @(Get-ChildItem artifacts/verified-release -File | Sort-Object Name)
+          if ($local.Count -ne $remote.Count) { throw 'Draft asset count changed after upload.' }
+          for ($index = 0; $index -lt $local.Count; $index++) {
+            if ($local[$index].Name -cne $remote[$index].Name) { throw 'Draft asset names changed after upload.' }
+            $localHash = (Get-FileHash $local[$index].FullName -Algorithm SHA256).Hash
+            $remoteHash = (Get-FileHash $remote[$index].FullName -Algorithm SHA256).Hash
+            if ($localHash -cne $remoteHash) { throw "Draft asset changed after upload: $($local[$index].Name)" }
+          }
+
+      - name: Attest the verified release assets
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-path: artifacts/verified-release/*
+
+      - name: Publish the verified draft
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate-and-package.outputs.tag }}
+        run: |
+          gh release edit $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to publish the verified release.' }

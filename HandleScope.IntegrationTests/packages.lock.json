@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0-windows7.0": {
+      "handlescope.api": {
+        "type": "Project",
+        "dependencies": {
+          "HandleScope.Core": "[0.1.0, )"
+        }
+      },
+      "handlescope.core": {
+        "type": "Project"
+      }
+    },
+    "net10.0-windows7.0/win-x64": {}
+  }
+}

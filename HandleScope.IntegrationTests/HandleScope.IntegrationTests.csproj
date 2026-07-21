@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HandleScope.Core\HandleScope.Core.csproj" />
+    <ProjectReference Include="..\HandleScope.Api\HandleScope.Api.csproj" />
+  </ItemGroup>
+
+</Project>

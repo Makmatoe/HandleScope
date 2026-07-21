@@ -1,0 +1,41 @@
+# Build output
+**/bin/
+**/obj/
+artifacts/
+TestResults/
+coverage/
+*.trx
+*.coverage
+*.coveragexml
+*.nupkg
+*.snupkg
+
+# IDE and user state
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# HandleScope runtime state and credentials
+connection.json
+api.log
+*.log
+*.dmp
+*.mdmp
+*.etl
+*.pfx
+*.p12
+*.key
+*.pvk
+*.snk
+*.secrets.json
+.env
+.env.*
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+Desktop.ini

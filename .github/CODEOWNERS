@@ -1,0 +1,16 @@
+# Default ownership
+* @Makmatoe
+
+# Privileged code, release trust, and persistence boundaries
+/.github/workflows/ @Makmatoe
+/scripts/ @Makmatoe
+/HandleScope.Api/ @Makmatoe
+/HandleScope.Core/ @Makmatoe
+/HandleScope/app.manifest @Makmatoe
+/HandleScope.Api/app.manifest @Makmatoe
+/Directory.Build.props @Makmatoe
+/global.json @Makmatoe
+/NuGet.Config @Makmatoe
+/SECURITY.md @Makmatoe
+/docs/RELEASING.md @Makmatoe
+/docs/THREAT_MODEL.md @Makmatoe

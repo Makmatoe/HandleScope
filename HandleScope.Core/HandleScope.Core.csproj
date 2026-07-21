@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>HandleScope.Core</AssemblyName>
+    <RootNamespace>HandleScope</RootNamespace>
+  </PropertyGroup>
+
+</Project>

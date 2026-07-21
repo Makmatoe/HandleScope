@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>HandleScope.Api</AssemblyName>
+    <RootNamespace>HandleScope.Api</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HandleScope.Core\HandleScope.Core.csproj" />
+  </ItemGroup>
+
+</Project>
