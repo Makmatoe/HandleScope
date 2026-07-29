@@ -21,10 +21,58 @@ public sealed class HandleService
         CancellationToken cancellationToken,
         bool includeUnnamed = false,
         Func<HandleEntry, bool>? resultFilter = null,
-        int maximumMatches = int.MaxValue)
+        int maximumMatches = int.MaxValue) =>
+        FindHandlesCore(
+            processId,
+            query,
+            matchMode,
+            progress,
+            cancellationToken,
+            includeUnnamed,
+            resultFilter,
+            maximumMatches,
+            expectedProcessCreationTimeUtcFileTime: null);
+
+    public IReadOnlyList<HandleEntry> FindHandles(
+        int processId,
+        long expectedProcessCreationTimeUtcFileTime,
+        string query,
+        HandleMatchMode matchMode,
+        IProgress<ScanProgress>? progress,
+        CancellationToken cancellationToken,
+        bool includeUnnamed = false,
+        Func<HandleEntry, bool>? resultFilter = null,
+        int maximumMatches = int.MaxValue) =>
+        FindHandlesCore(
+            processId,
+            query,
+            matchMode,
+            progress,
+            cancellationToken,
+            includeUnnamed,
+            resultFilter,
+            maximumMatches,
+            expectedProcessCreationTimeUtcFileTime);
+
+    private static IReadOnlyList<HandleEntry> FindHandlesCore(
+        int processId,
+        string query,
+        HandleMatchMode matchMode,
+        IProgress<ScanProgress>? progress,
+        CancellationToken cancellationToken,
+        bool includeUnnamed,
+        Func<HandleEntry, bool>? resultFilter,
+        int maximumMatches,
+        long? expectedProcessCreationTimeUtcFileTime)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(processId);
         ArgumentOutOfRangeException.ThrowIfLessThan(maximumMatches, 1);
+        if (expectedProcessCreationTimeUtcFileTime is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(expectedProcessCreationTimeUtcFileTime),
+                "The expected process creation time must be a positive Windows file time.");
+        }
 
         var processHandle = NativeMethods.OpenProcess(
             NativeMethods.ProcessDuplicateHandle | NativeMethods.ProcessQueryLimitedInformation,
@@ -42,11 +90,13 @@ public sealed class HandleService
         {
             var processCreationTime =
                 ProcessIdentityService.GetCreationTimeUtcFileTime(processHandle);
+            EnsureExpectedProcessIdentity(
+                processCreationTime,
+                expectedProcessCreationTimeUtcFileTime);
             var systemHandles = QuerySystemHandles()
                 .Where(entry => entry.UniqueProcessId == (nuint)(uint)processId)
                 .ToArray();
-            var matches = new List<HandleEntry>();
-            var objectTypes = new Dictionary<ushort, string>();
+            var matches = new List<ResolvedHandleMatch>();
             var devicePaths = BuildDevicePathMap();
             var normalizedQuery = query.Trim();
 
@@ -70,14 +120,12 @@ public sealed class HandleService
 
                 try
                 {
-                    if (!objectTypes.TryGetValue(systemHandle.ObjectTypeIndex, out var objectType))
-                    {
-                        objectType = QueryObjectString(duplicate, NativeMethods.ObjectTypeInformation);
-                        objectTypes[systemHandle.ObjectTypeIndex] =
-                            string.IsNullOrWhiteSpace(objectType) ? "Unknown" : objectType;
-                    }
-
-                    objectType = objectTypes[systemHandle.ObjectTypeIndex];
+                    var objectType = QueryObjectString(
+                        duplicate,
+                        NativeMethods.ObjectTypeInformation);
+                    objectType = string.IsNullOrWhiteSpace(objectType)
+                        ? "Unknown"
+                        : objectType;
                     var nativeName = string.Equals(objectType, "File", StringComparison.OrdinalIgnoreCase)
                         ? QueryFileName(duplicate)
                         : QueryObjectString(duplicate, NativeMethods.ObjectNameInformation);
@@ -108,7 +156,7 @@ public sealed class HandleService
                     };
                     if (resultFilter is null || resultFilter(match))
                     {
-                        matches.Add(match);
+                        matches.Add(new ResolvedHandleMatch(match, systemHandle));
                     }
                 }
                 finally
@@ -123,10 +171,29 @@ public sealed class HandleService
                 }
             }
 
-            return matches
+            cancellationToken.ThrowIfCancellationRequested();
+            var revalidatedMatches = RevalidateResolvedMatches(processId, matches);
+
+            var finalCreationTime =
+                ProcessIdentityService.GetCreationTimeUtcFileTime(processHandle);
+            if (finalCreationTime != processCreationTime)
+            {
+                throw new InvalidOperationException(
+                    "The target process identity changed during the scan. Refresh the process list and try again.");
+            }
+
+            EnsureExpectedProcessIdentity(
+                finalCreationTime,
+                expectedProcessCreationTimeUtcFileTime);
+
+            var results = revalidatedMatches
                 .OrderBy(entry => entry.ObjectType, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
+            EnsureProcessIdStillRefersTo(
+                processId,
+                processCreationTime);
+            return results;
         }
         finally
         {
@@ -191,6 +258,12 @@ public sealed class HandleService
                     "The handle value has been reused for a different object. Refresh the results; nothing was closed.");
             }
 
+            if (current.GrantedAccess != expected.GrantedAccess)
+            {
+                throw new InvalidOperationException(
+                    "The handle access rights changed after the scan. Refresh the results; nothing was closed.");
+            }
+
             var closeReported = NativeMethods.CloseRemoteHandle(
                     processHandle,
                     ToIntPtr(expected.HandleValue),
@@ -218,6 +291,85 @@ public sealed class HandleService
             NativeMethods.CloseHandle(processHandle);
         }
     }
+
+    private static IReadOnlyList<HandleEntry> RevalidateResolvedMatches(
+        int processId,
+        IReadOnlyList<ResolvedHandleMatch> resolvedMatches)
+    {
+        if (resolvedMatches.Count == 0)
+        {
+            return [];
+        }
+
+        var currentHandles = QuerySystemHandles()
+            .Where(entry => entry.UniqueProcessId == (nuint)(uint)processId)
+            .GroupBy(entry => entry.HandleValue)
+            .ToDictionary(group => group.Key, group => group.ToArray());
+
+        return resolvedMatches
+            .Where(resolved =>
+                currentHandles.TryGetValue(resolved.Entry.HandleValue, out var candidates) &&
+                candidates.Any(current =>
+                    current.Object == resolved.Snapshot.Object &&
+                    current.UniqueProcessId == resolved.Snapshot.UniqueProcessId &&
+                    current.HandleValue == resolved.Snapshot.HandleValue &&
+                    current.GrantedAccess == resolved.Snapshot.GrantedAccess &&
+                    current.CreatorBackTraceIndex ==
+                        resolved.Snapshot.CreatorBackTraceIndex &&
+                    current.ObjectTypeIndex == resolved.Snapshot.ObjectTypeIndex &&
+                    current.HandleAttributes == resolved.Snapshot.HandleAttributes &&
+                    current.Reserved == resolved.Snapshot.Reserved))
+            .Select(resolved => resolved.Entry)
+            .ToArray();
+    }
+
+    private static void EnsureExpectedProcessIdentity(
+        long currentCreationTimeUtcFileTime,
+        long? expectedCreationTimeUtcFileTime)
+    {
+        if (expectedCreationTimeUtcFileTime.HasValue &&
+            currentCreationTimeUtcFileTime != expectedCreationTimeUtcFileTime.Value)
+        {
+            throw new InvalidOperationException(
+                "The process ID now belongs to a different process. Refresh the process list; no handles were scanned.");
+        }
+    }
+
+    private static void EnsureProcessIdStillRefersTo(
+        int processId,
+        long expectedCreationTimeUtcFileTime)
+    {
+        var verificationHandle = NativeMethods.OpenProcess(
+            NativeMethods.ProcessQueryLimitedInformation,
+            false,
+            processId);
+
+        if (verificationHandle == IntPtr.Zero)
+        {
+            throw new Win32Exception(
+                Marshal.GetLastWin32Error(),
+                $"PID {processId} exited before the scan results could be verified.");
+        }
+
+        try
+        {
+            var currentCreationTime =
+                ProcessIdentityService.GetCreationTimeUtcFileTime(verificationHandle);
+            if (currentCreationTime != expectedCreationTimeUtcFileTime)
+            {
+                throw new InvalidOperationException(
+                    "The process ID was reassigned during the scan. Refresh the process list; no results were returned.");
+            }
+        }
+        finally
+        {
+            NativeMethods.CloseHandle(verificationHandle);
+        }
+    }
+
+    private sealed record ResolvedHandleMatch(
+        HandleEntry Entry,
+        NativeMethods.SystemHandleTableEntryInfoEx Snapshot);
 
     private static NativeMethods.SystemHandleTableEntryInfoEx[] QuerySystemHandles()
     {

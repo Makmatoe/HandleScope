@@ -79,27 +79,39 @@ $handleSelector = @{
 }
 
 function New-HandleScopeBody {
-    param([bool]$IsDryRun)
+    param(
+        [bool]$IsDryRun,
+        [string]$PlanId
+    )
 
-    return @{
+    $body = @{
         process = $processSelector
         handle = $handleSelector
         dryRun = $IsDryRun
         closeAll = $false
         allProcesses = [bool]$AllProcesses
-    } | ConvertTo-Json -Depth 5 -Compress
+    }
+    if (-not $IsDryRun) {
+        if ($PlanId -cnotmatch '^[A-Za-z0-9_-]{43}$') {
+            throw 'HandleScope execution requires the plan ID returned by its dry run.'
+        }
+        $body.planId = $PlanId
+    }
+
+    return $body | ConvertTo-Json -Depth 5 -Compress
 }
 
 $review = Invoke-HandleScopeApiRequest `
     -Connection $connection `
     -Path '/v1/handles/close' `
     -Method 'POST' `
-    -Body (New-HandleScopeBody -IsDryRun $true) `
+    -Body (New-HandleScopeBody -IsDryRun $true -PlanId '') `
     -Authenticated
 if ($review.StatusCode -ne 200 -or
     $null -eq $review.Json -or
     [int]$review.Json.matchCount -le 0 -or
-    [int]$review.Json.failedCount -ne 0) {
+    [int]$review.Json.failedCount -ne 0 -or
+    [string]$review.Json.planId -cnotmatch '^[A-Za-z0-9_-]{43}$') {
     throw "HandleScope dry run was not approved (HTTP $($review.StatusCode)). No handle was closed."
 }
 
@@ -111,7 +123,9 @@ $result = Invoke-HandleScopeApiRequest `
     -Connection $connection `
     -Path '/v1/handles/close' `
     -Method 'POST' `
-    -Body (New-HandleScopeBody -IsDryRun $false) `
+    -Body (New-HandleScopeBody `
+        -IsDryRun $false `
+        -PlanId ([string]$review.Json.planId)) `
     -Authenticated
 if ($result.StatusCode -ne 200 -or
     $null -eq $result.Json -or

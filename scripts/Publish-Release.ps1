@@ -95,6 +95,29 @@ function Get-RelativeSlashPath {
         $baseUri.MakeRelativeUri($targetUri).ToString()).Replace('\', '/')
 }
 
+function Assert-VersionNeutralVerificationGuide {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $guide = [IO.File]::ReadAllText($Path)
+    if ($guide -match '(?i)(?:HandleScope-|verify-asset\s+v)\d+\.\d+\.\d+') {
+        throw 'Download verification guide contains a hard-coded release version.'
+    }
+    foreach ($requiredControl in @(
+            '$version = $Matches.version',
+            '$assetBaseName = "HandleScope-$version-win-x64"',
+            'gh attestation verify $zip.FullName',
+            'gh release verify-asset $tag $zip.FullName')) {
+        if ($guide.IndexOf(
+                $requiredControl,
+                [StringComparison]::Ordinal) -lt 0) {
+            throw "Download verification guide is missing its version-neutral control: $requiredControl"
+        }
+    }
+}
+
 function Remove-ReviewedArtifactDirectory {
     param(
         [Parameter(Mandatory)]
@@ -311,8 +334,10 @@ try {
     Copy-ReviewedFile `
         -Source (Join-Path $repositoryRoot 'docs\THREAT_MODEL.md') `
         -Destination (Join-Path $documentationRoot 'THREAT_MODEL.md')
+    $verificationGuideSource = Join-Path $repositoryRoot 'docs\VERIFY_DOWNLOAD.md'
+    Assert-VersionNeutralVerificationGuide -Path $verificationGuideSource
     Copy-ReviewedFile `
-        -Source (Join-Path $repositoryRoot 'docs\VERIFY_DOWNLOAD.md') `
+        -Source $verificationGuideSource `
         -Destination (Join-Path $documentationRoot 'VERIFY_DOWNLOAD.md')
     Copy-ReviewedFile `
         -Source (Join-Path $repositoryRoot 'docs\integrations\sessiondock.md') `

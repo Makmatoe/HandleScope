@@ -12,7 +12,13 @@ namespace HandleScope.Api;
 public sealed record ApiRuntimeOptions(
     int Port,
     string Token,
-    IHandleAutomationPolicy? Policy = null);
+    IHandleAutomationPolicy? Policy = null,
+    TimeProvider? TimeProvider = null);
+
+internal sealed record CandidateAuthorizationResult(
+    IReadOnlyList<ProcessIdentity> Authorized,
+    bool SelectedPidDenied,
+    bool TooMany);
 
 public static class ApiHost
 {
@@ -66,6 +72,7 @@ public static class ApiHost
 
         builder.Services.AddSingleton<DryRunPlanStore>();
         builder.Services.AddSingleton<OperationGate>();
+        builder.Services.AddSingleton(options.TimeProvider ?? TimeProvider.System);
         builder.Services.Configure<JsonOptions>(json =>
         {
             json.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
@@ -183,6 +190,7 @@ public static class ApiHost
                     planStore,
                     cancellationToken)
                 : ExecuteDryRunPlan(
+                    request,
                     authorization,
                     policy,
                     handleService,
@@ -209,24 +217,24 @@ public static class ApiHost
         CancellationToken cancellationToken)
     {
         var candidatePids = ResolveCandidatePids(request, requestAuthorization);
-        if (candidatePids.Length > policy.MaximumProcessCount)
+        var candidateAuthorization = AuthorizeCandidateProcesses(
+            candidatePids,
+            request,
+            requestAuthorization,
+            policy);
+        if (candidateAuthorization.TooMany)
         {
-            return Error(StatusCodes.Status409Conflict, "too_many_target_processes");
+            return Error(
+                StatusCodes.Status409Conflict,
+                "too_many_target_processes");
         }
 
-        var authorized = new List<ProcessIdentity>();
-        foreach (var pid in candidatePids)
+        if (candidateAuthorization.SelectedPidDenied)
         {
-            var processAuthorization = policy.AuthorizeProcess(pid, requestAuthorization);
-            if (processAuthorization.IsAllowed && processAuthorization.Identity is not null)
-            {
-                authorized.Add(processAuthorization.Identity);
-            }
-            else if (request.Process?.Pid is not null)
-            {
-                return Error(StatusCodes.Status403Forbidden, "policy_denied");
-            }
+            return Error(StatusCodes.Status403Forbidden, "policy_denied");
         }
+
+        var authorized = candidateAuthorization.Authorized;
 
         if (authorized.Count == 0)
         {
@@ -299,44 +307,54 @@ public static class ApiHost
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        var response = CreateOperationResponse(
-            policy.PolicyId,
-            dryRun: true,
-            authorized.Count,
-            matches,
-            closed: [],
-            failures,
-            skipped);
         if (failures.Count > 0)
         {
-            return Results.Json(response, statusCode: StatusCodes.Status207MultiStatus);
+            return Results.Json(
+                CreateOperationResponse(
+                    policy.PolicyId,
+                    dryRun: true,
+                    planId: null,
+                    authorized.Count,
+                    matches,
+                    closed: [],
+                    failures,
+                    skipped),
+                statusCode: StatusCodes.Status207MultiStatus);
         }
 
-        planStore.Put(
+        var planId = planStore.Put(
             requestAuthorization.CanonicalKey,
             authorized.Count,
             skipped.Count,
             processPlans);
-        return Results.Ok(response);
+        return Results.Ok(CreateOperationResponse(
+            policy.PolicyId,
+            dryRun: true,
+            planId,
+            authorized.Count,
+            matches,
+            closed: [],
+            failures,
+            skipped));
     }
 
     private static IResult ExecuteDryRunPlan(
+        CloseHandlesRequest request,
         AutomationRequestAuthorization requestAuthorization,
         IHandleAutomationPolicy policy,
         HandleService handleService,
         DryRunPlanStore planStore)
     {
-        if (!planStore.TryTake(requestAuthorization.CanonicalKey, out var plan) ||
+        if (!planStore.TryTake(
+                request.PlanId!,
+                requestAuthorization.CanonicalKey,
+                out var plan) ||
             plan is null)
         {
             return Error(StatusCodes.Status409Conflict, "dry_run_required");
         }
 
-        var matches = plan.Processes
-            .SelectMany(process => process.Handles)
-            .Select(HandleResponse.FromEntry)
-            .Take(2)
-            .ToArray();
+        var matches = GetPlannedMatches(plan);
         var closed = new List<HandleResponse>();
         var failures = new List<object>();
 
@@ -386,6 +404,7 @@ public static class ApiHost
         var response = CreateOperationResponse(
             policy.PolicyId,
             dryRun: false,
+            planId: null,
             plan.ProcessCount,
             matches,
             closed,
@@ -405,6 +424,7 @@ public static class ApiHost
     {
         var handles = handleService.FindHandles(
             identity.ProcessId,
+            identity.CreationTimeUtcFileTime,
             selector.Name!,
             HandleMatchMode.Exact,
             progress: null,
@@ -432,6 +452,48 @@ public static class ApiHost
             .Take(2)
             .ToArray();
     }
+
+    internal static CandidateAuthorizationResult AuthorizeCandidateProcesses(
+        IEnumerable<int> candidatePids,
+        CloseHandlesRequest request,
+        AutomationRequestAuthorization requestAuthorization,
+        IHandleAutomationPolicy policy)
+    {
+        var authorized = new List<ProcessIdentity>();
+        foreach (var pid in candidatePids)
+        {
+            var processAuthorization = policy.AuthorizeProcess(pid, requestAuthorization);
+            if (processAuthorization.IsAllowed && processAuthorization.Identity is not null)
+            {
+                authorized.Add(processAuthorization.Identity);
+                if (authorized.Count > policy.MaximumProcessCount)
+                {
+                    return new CandidateAuthorizationResult(
+                        authorized,
+                        SelectedPidDenied: false,
+                        TooMany: true);
+                }
+            }
+            else if (request.Process?.Pid is not null)
+            {
+                return new CandidateAuthorizationResult(
+                    authorized,
+                    SelectedPidDenied: true,
+                    TooMany: false);
+            }
+        }
+
+        return new CandidateAuthorizationResult(
+            authorized,
+            SelectedPidDenied: false,
+            TooMany: false);
+    }
+
+    internal static HandleResponse[] GetPlannedMatches(DryRunPlan plan) =>
+        plan.Processes
+            .SelectMany(process => process.Handles)
+            .Select(HandleResponse.FromEntry)
+            .ToArray();
 
     private static int[] ResolveCandidatePids(
         CloseHandlesRequest request,
@@ -462,6 +524,7 @@ public static class ApiHost
     private static object CreateOperationResponse(
         string policy,
         bool dryRun,
+        string? planId,
         int processCount,
         IReadOnlyCollection<HandleResponse> matches,
         IReadOnlyCollection<HandleResponse> closed,
@@ -471,6 +534,7 @@ public static class ApiHost
         {
             policy,
             dryRun,
+            planId,
             processCount,
             matchedProcessCount = matches.Select(handle => handle.Pid).Distinct().Count(),
             matchCount = matches.Count,

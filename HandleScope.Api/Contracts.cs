@@ -33,6 +33,8 @@ public sealed class CloseHandlesRequest
     public bool CloseAll { get; init; }
 
     public bool AllProcesses { get; init; }
+
+    public string? PlanId { get; init; }
 }
 
 public sealed record ProcessResponse(

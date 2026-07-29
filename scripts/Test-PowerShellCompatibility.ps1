@@ -10,6 +10,226 @@ $commonScript = Join-Path `
     'HandleScope.Api\Scripts\HandleScope.ScriptCommon.ps1'
 . $commonScript
 
+function Assert-CompatibilityEqual {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Scenario,
+
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string]$Expected,
+
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string]$Actual
+    )
+
+    if ($Actual -cne $Expected) {
+        throw "$Scenario returned '$Actual'; expected '$Expected'."
+    }
+}
+
+$startupScenarios = @(
+    [pscustomobject]@{
+        Name = 'ready connection'
+        Connection = 'Valid'
+        Health = $true
+        Referenced = 'None'
+        Installed = 'Unknown'
+        Expected = 'Ready'
+    },
+    [pscustomobject]@{
+        Name = 'unhealthy valid connection with no live process'
+        Connection = 'Valid'
+        Health = $false
+        Referenced = 'None'
+        Installed = 'NotRunning'
+        Expected = 'Start'
+    },
+    [pscustomobject]@{
+        Name = 'unhealthy valid connection with referenced process'
+        Connection = 'Valid'
+        Health = $false
+        Referenced = 'Running'
+        Installed = 'Running'
+        Expected = 'Blocked'
+    },
+    [pscustomobject]@{
+        Name = 'unhealthy valid connection with uncertain process inspection'
+        Connection = 'Valid'
+        Health = $false
+        Referenced = 'Unknown'
+        Installed = 'Unknown'
+        Expected = 'Blocked'
+    },
+    [pscustomobject]@{
+        Name = 'referenced process still running'
+        Connection = 'Invalid'
+        Health = $false
+        Referenced = 'Running'
+        Installed = 'NotRunning'
+        Expected = 'Blocked'
+    },
+    [pscustomobject]@{
+        Name = 'referenced process inspection uncertain'
+        Connection = 'Invalid'
+        Health = $false
+        Referenced = 'Unknown'
+        Installed = 'NotRunning'
+        Expected = 'Blocked'
+    },
+    [pscustomobject]@{
+        Name = 'installed process still running'
+        Connection = 'Invalid'
+        Health = $false
+        Referenced = 'None'
+        Installed = 'Running'
+        Expected = 'Blocked'
+    },
+    [pscustomobject]@{
+        Name = 'installed process inspection uncertain'
+        Connection = 'Missing'
+        Health = $false
+        Referenced = 'None'
+        Installed = 'Unknown'
+        Expected = 'Blocked'
+    },
+    [pscustomobject]@{
+        Name = 'definitely stale connection'
+        Connection = 'Invalid'
+        Health = $false
+        Referenced = 'None'
+        Installed = 'NotRunning'
+        Expected = 'Start'
+    },
+    [pscustomobject]@{
+        Name = 'clean startup'
+        Connection = 'Missing'
+        Health = $false
+        Referenced = 'None'
+        Installed = 'NotRunning'
+        Expected = 'Start'
+    }
+)
+foreach ($scenario in $startupScenarios) {
+    $actualDisposition = Resolve-HandleScopeApiStartupDisposition `
+        -ConnectionState $scenario.Connection `
+        -HealthReady $scenario.Health `
+        -ReferencedProcessState $scenario.Referenced `
+        -InstalledProcessState $scenario.Installed
+    Assert-CompatibilityEqual `
+        -Scenario $scenario.Name `
+        -Expected $scenario.Expected `
+        -Actual $actualDisposition
+}
+
+$expectedApiExecutable = Join-Path `
+    ([IO.Path]::GetTempPath()) `
+    'HandleScope\HandleScope.Api.exe'
+function New-CompatibilityAutostartTask {
+    param(
+        [string]$Execute = $expectedApiExecutable,
+        [string]$Arguments = '',
+        [string]$RunLevel = 'Limited',
+        [string]$State = 'Ready',
+        [bool]$Enabled = $true
+    )
+
+    [pscustomobject]@{
+        Actions = @(
+            [pscustomobject]@{
+                Execute = $Execute
+                Arguments = $Arguments
+            }
+        )
+        Principal = [pscustomobject]@{
+            RunLevel = $RunLevel
+        }
+        State = $State
+        Settings = [pscustomobject]@{
+            Enabled = $Enabled
+        }
+    }
+}
+
+$autostartScenarios = @(
+    [pscustomobject]@{
+        Name = 'missing autostart task'
+        Task = $null
+        Expected = 'Absent'
+    },
+    [pscustomobject]@{
+        Name = 'enabled autostart task'
+        Task = New-CompatibilityAutostartTask `
+            -Execute $expectedApiExecutable.ToUpperInvariant()
+        Expected = 'Enabled'
+    },
+    [pscustomobject]@{
+        Name = 'disabled autostart task state'
+        Task = New-CompatibilityAutostartTask -State 'Disabled'
+        Expected = 'Disabled'
+    },
+    [pscustomobject]@{
+        Name = 'disabled autostart task setting'
+        Task = New-CompatibilityAutostartTask -Enabled $false
+        Expected = 'Disabled'
+    },
+    [pscustomobject]@{
+        Name = 'unexpected autostart executable'
+        Task = New-CompatibilityAutostartTask `
+            -Execute (Join-Path ([IO.Path]::GetTempPath()) 'Other.exe')
+        Expected = 'Unexpected'
+    },
+    [pscustomobject]@{
+        Name = 'unexpected autostart arguments'
+        Task = New-CompatibilityAutostartTask -Arguments '--unexpected'
+        Expected = 'Unexpected'
+    },
+    [pscustomobject]@{
+        Name = 'elevated autostart task'
+        Task = New-CompatibilityAutostartTask -RunLevel 'Highest'
+        Expected = 'Unexpected'
+    }
+)
+foreach ($scenario in $autostartScenarios) {
+    $actualAutostartState = Get-HandleScopeAutostartState `
+        -Task $scenario.Task `
+        -ExpectedExecutable $expectedApiExecutable
+    Assert-CompatibilityEqual `
+        -Scenario $scenario.Name `
+        -Expected $scenario.Expected `
+        -Actual $actualAutostartState
+}
+
+$startScriptPath = Join-Path `
+    $repositoryRoot `
+    'HandleScope.Api\Scripts\Start-HandleScopeApi.ps1'
+$startScriptSource = [IO.File]::ReadAllText($startScriptPath)
+if ($startScriptSource.IndexOf(
+        'Resolve-HandleScopeApiStartupDisposition',
+        [StringComparison]::Ordinal) -lt 0 -or
+    $startScriptSource.IndexOf(
+        'No connection data was removed.',
+        [StringComparison]::Ordinal) -lt 0 -or
+    $startScriptSource.IndexOf(
+        'Remove-HandleScopeLocalItem',
+        [StringComparison]::Ordinal) -ge 0) {
+    throw 'The API start script no longer preserves discovery data and uses the fail-closed lifecycle decision.'
+}
+
+$installerScriptPath = Join-Path `
+    $repositoryRoot `
+    'HandleScope.Api\Scripts\Install-HandleScopeApi.ps1'
+$installerScriptSource = [IO.File]::ReadAllText($installerScriptPath)
+if ([regex]::Matches(
+        $installerScriptSource,
+        'Get-HandleScopeAutostartState').Count -lt 2 -or
+    $installerScriptSource.IndexOf(
+        'autostart remains enabled.',
+        [StringComparison]::Ordinal) -lt 0) {
+    throw 'The installer no longer validates and reports the preserved autostart state.'
+}
+
 $minimal = '{"enabled":true}' | ConvertFrom-Json
 if (-not (Test-HandleScopeMinimalSessionDockSetting -Setting $minimal)) {
     throw 'The minimal enabled SessionDock setting was not recognized.'
@@ -251,4 +471,4 @@ finally {
     }
 }
 
-Write-Host 'Windows PowerShell SessionDock setting compatibility validation passed.'
+Write-Host 'Windows PowerShell lifecycle and SessionDock compatibility validation passed.'

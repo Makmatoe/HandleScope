@@ -173,14 +173,11 @@ jobs:
             --dir artifacts/verified-release --pattern '*'
           if ($LASTEXITCODE -ne 0) { throw 'Unable to redownload draft release assets.' }
 
-      - name: Verify redownloaded assets byte for byte
+      - name: Compare and verify redownloaded assets
         shell: pwsh
         env:
           RELEASE_VERSION: ${{ needs.validate-and-package.outputs.version }}
         run: |
-          ./scripts/Verify-ReleaseAssets.ps1 `
-            -Directory artifacts/verified-release `
-            -Version $env:RELEASE_VERSION
           $local = @(Get-ChildItem artifacts/release-output -File | Sort-Object Name)
           $remote = @(Get-ChildItem artifacts/verified-release -File | Sort-Object Name)
           if ($local.Count -ne $remote.Count) { throw 'Draft asset count changed after upload.' }
@@ -190,6 +187,9 @@ jobs:
             $remoteHash = (Get-FileHash $remote[$index].FullName -Algorithm SHA256).Hash
             if ($localHash -cne $remoteHash) { throw "Draft asset changed after upload: $($local[$index].Name)" }
           }
+          ./scripts/Verify-ReleaseAssets.ps1 `
+            -Directory artifacts/verified-release `
+            -Version $env:RELEASE_VERSION
 
       - name: Attest the verified release assets
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0

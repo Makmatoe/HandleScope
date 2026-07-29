@@ -260,9 +260,6 @@ try {
         -Actual $actualBundleFiles `
         -Description 'Release bundle file list'
 
-    $installerPath = Join-Path $bundleRoot 'api\Install-HandleScopeApi.ps1'
-    & $installerPath -VerifyOnly
-
     $contentsManifestPath = Join-Path $bundleRoot 'CONTENTS.sha256'
     if (-not (Test-Path -LiteralPath $contentsManifestPath -PathType Leaf)) {
         throw 'Release bundle has no CONTENTS.sha256 manifest.'
@@ -310,6 +307,26 @@ try {
             -Algorithm SHA256).Hash
     if ($bundleLicenseSha256 -cne $approvedLicenseSha256) {
         throw 'Release bundle license does not match the reviewed MIT license text.'
+    }
+
+    $verificationGuidePath = Join-Path $bundleRoot 'docs\VERIFY_DOWNLOAD.md'
+    $verificationGuide = [IO.File]::ReadAllText($verificationGuidePath)
+    if ($verificationGuide -match
+        '(?i)(?:HandleScope-|verify-asset\s+v)\d+\.\d+\.\d+') {
+        throw 'Download verification guide contains a hard-coded release version.'
+    }
+    $requiredGuideControls = @(
+        '$version = $Matches.version',
+        '$assetBaseName = "HandleScope-$version-win-x64"',
+        'gh attestation verify $zip.FullName',
+        'gh release verify-asset $tag $zip.FullName'
+    )
+    foreach ($guideControl in $requiredGuideControls) {
+        if ($verificationGuide.IndexOf(
+                $guideControl,
+                [StringComparison]::Ordinal) -lt 0) {
+            throw "Download verification guide is missing its version-neutral control: $guideControl"
+        }
     }
 
     $bundleFiles = @(

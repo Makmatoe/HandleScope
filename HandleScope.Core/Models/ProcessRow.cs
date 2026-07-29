@@ -6,6 +6,8 @@ public sealed record ProcessRow(
     int? HandleCount,
     long? WorkingSetBytes)
 {
+    public long ProcessCreationTimeUtcFileTime { get; init; }
+
     public string PidDisplay => ProcessId.ToString();
 
     public string HandleCountDisplay => HandleCount?.ToString("N0") ?? "—";

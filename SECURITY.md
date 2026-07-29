@@ -30,7 +30,8 @@ execution. It listens only on IPv4 loopback, authenticates protected endpoints
 with a rotating 256-bit token stored under the current user's protected local
 application-data directory, and enforces the compiled
 `roblox-singleton-event-v1` policy. A successful five-second dry run creates a
-single-use execution plan; process and handle identities are revalidated before
+single-use execution plan with a random identifier that the identical execution
+request must present; process and handle identities are revalidated before
 closure.
 
 These controls narrow the impact but do not turn localhost into a security

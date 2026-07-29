@@ -12,16 +12,43 @@ public interface IRobloxExecutableVerifier
     bool IsTrusted(string imagePath);
 }
 
+internal interface IRobloxExecutableTrustServices
+{
+    string GetCanonicalPath(SafeFileHandle handle);
+
+    bool ContainsReparsePoint(string root, string path);
+
+    bool HasExpectedVersionIdentity(string path);
+
+    bool IsSignedAndTrusted(string path, SafeFileHandle fileHandle);
+
+    bool HasExpectedSigner(string path);
+}
+
 public sealed class RobloxExecutableVerifier : IRobloxExecutableVerifier
 {
     private const string ExpectedFileName = "RobloxPlayerBeta.exe";
     private const string ExpectedOriginalFileName = "RobloxApp.exe";
     private const string ExpectedPublisher = "Roblox Corporation";
     private readonly string[] _allowedRoots;
+    private readonly IRobloxExecutableTrustServices _trustServices;
 
     public RobloxExecutableVerifier()
+        : this(BuildAllowedRoots(), new WindowsExecutableTrustServices())
     {
-        _allowedRoots = BuildAllowedRoots();
+    }
+
+    internal RobloxExecutableVerifier(
+        IEnumerable<string> allowedRoots,
+        IRobloxExecutableTrustServices trustServices)
+    {
+        ArgumentNullException.ThrowIfNull(allowedRoots);
+        ArgumentNullException.ThrowIfNull(trustServices);
+        _allowedRoots = allowedRoots
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        _trustServices = trustServices;
     }
 
     public bool IsTrusted(string imagePath)
@@ -35,17 +62,17 @@ public sealed class RobloxExecutableVerifier : IRobloxExecutableVerifier
                 // Keep the verified path from being replaced between version,
                 // WinVerifyTrust, and signer checks.
                 FileShare.Read);
-            var canonicalPath = GetCanonicalPath(stream.SafeFileHandle);
+            var canonicalPath = _trustServices.GetCanonicalPath(stream.SafeFileHandle);
             if (!IsAllowedPath(canonicalPath))
             {
                 return false;
             }
 
-            return HasExpectedVersionIdentity(canonicalPath) &&
-                   Authenticode.IsSignedAndTrusted(
+            return _trustServices.HasExpectedVersionIdentity(canonicalPath) &&
+                   _trustServices.IsSignedAndTrusted(
                        canonicalPath,
                        stream.SafeFileHandle) &&
-                   HasExpectedSigner(canonicalPath);
+                   _trustServices.HasExpectedSigner(canonicalPath);
         }
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException or
@@ -76,7 +103,7 @@ public sealed class RobloxExecutableVerifier : IRobloxExecutableVerifier
                 parts[0].Length > "version-".Length &&
                 string.Equals(parts[1], ExpectedFileName, StringComparison.OrdinalIgnoreCase))
             {
-                return !ContainsReparsePoint(root, canonicalPath);
+                return !_trustServices.ContainsReparsePoint(root, canonicalPath);
             }
         }
 
@@ -199,6 +226,24 @@ public sealed class RobloxExecutableVerifier : IRobloxExecutableVerifier
         }
 
         throw new IOException("The Roblox executable path is too long.");
+    }
+
+    internal sealed class WindowsExecutableTrustServices : IRobloxExecutableTrustServices
+    {
+        public string GetCanonicalPath(SafeFileHandle handle) =>
+            RobloxExecutableVerifier.GetCanonicalPath(handle);
+
+        public bool ContainsReparsePoint(string root, string path) =>
+            RobloxExecutableVerifier.ContainsReparsePoint(root, path);
+
+        public bool HasExpectedVersionIdentity(string path) =>
+            RobloxExecutableVerifier.HasExpectedVersionIdentity(path);
+
+        public bool IsSignedAndTrusted(string path, SafeFileHandle fileHandle) =>
+            Authenticode.IsSignedAndTrusted(path, fileHandle);
+
+        public bool HasExpectedSigner(string path) =>
+            RobloxExecutableVerifier.HasExpectedSigner(path);
     }
 
     private const uint FileNameNormalized = 0x0;

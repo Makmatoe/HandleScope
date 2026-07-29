@@ -93,7 +93,9 @@ When `-EnableAutostart` is supplied, the installer creates one scheduled task
 for the current Windows SID and interactive logon. The task uses `RunLevel
 Limited`; it does not run as administrator, another user, a service account, or
 session 0. Installing an update without the switch does not remove an autostart
-task that was already enabled.
+task that was already enabled. At completion, the installer reports the task's
+observed enabled, disabled, or absent state, including a state preserved during
+an update.
 
 The API publishes its rotating local connection credential under
 `%LOCALAPPDATA%\HandleScope\connection.json`. Treat that file as secret and do
@@ -140,9 +142,13 @@ Use the installed scripts from a normal PowerShell window:
 & "$env:LOCALAPPDATA\Programs\HandleScope\Api\Stop-HandleScopeApi.ps1"
 ```
 
-Start validates any active discovery document and refuses to mask an unknown
-or unhealthy API process. Stop authenticates to the current loopback instance
-and waits for it to exit; it does not terminate unrelated processes by name.
+Start validates any active discovery document and refuses to mask a live or
+uninspectable API process behind an unhealthy connection. It preserves
+discovery data when startup safety is uncertain; a definitively stale document
+is replaced only when the new API publishes its connection. Blocked startup
+prints wait, authenticated-stop, and exact-path Task Manager recovery guidance.
+Stop authenticates to the current loopback instance and waits for it to exit;
+it does not terminate unrelated processes by name.
 
 ## Update
 

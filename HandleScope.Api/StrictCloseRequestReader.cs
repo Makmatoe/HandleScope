@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Text.Json;
 
 namespace HandleScope.Api;
@@ -20,6 +21,7 @@ internal static class StrictCloseRequestReader
     private const int MaximumProcessNameLength = 128;
     private const int MaximumHandleNameLength = 512;
     private const int MaximumSelectorLength = 64;
+    private const int MaximumPlanIdLength = 64;
 
     internal static async Task<CloseRequestReadResult> ReadAsync(
         HttpRequest httpRequest,
@@ -32,8 +34,11 @@ internal static class StrictCloseRequestReader
                 "request_too_large");
         }
 
-        if (httpRequest.ContentType is null ||
-            !httpRequest.ContentType.StartsWith(
+        if (!MediaTypeHeaderValue.TryParse(
+                httpRequest.ContentType,
+                out var contentType) ||
+            !string.Equals(
+                contentType.MediaType,
                 "application/json",
                 StringComparison.OrdinalIgnoreCase))
         {
@@ -104,13 +109,20 @@ internal static class StrictCloseRequestReader
         if (root.ValueKind != JsonValueKind.Object ||
             !TryGetUniqueProperties(
                 root,
-                ["process", "handle", "dryRun", "closeAll", "allProcesses"],
+                ["process", "handle", "dryRun", "closeAll", "allProcesses", "planId"],
                 out var properties) ||
             !properties.TryGetValue("process", out var processElement) ||
             !properties.TryGetValue("handle", out var handleElement) ||
             !TryGetRequiredBoolean(properties, "dryRun", out var dryRun) ||
             !TryGetRequiredBoolean(properties, "closeAll", out var closeAll) ||
             !TryGetRequiredBoolean(properties, "allProcesses", out var allProcesses) ||
+            !TryGetOptionalString(
+                properties,
+                "planId",
+                MaximumPlanIdLength,
+                out var planId) ||
+            (dryRun && planId is not null) ||
+            (!dryRun && !DryRunPlanStore.IsCanonicalPlanId(planId)) ||
             !TryReadProcess(processElement, out var process) ||
             !TryReadHandle(handleElement, out var handle))
         {
@@ -123,7 +135,8 @@ internal static class StrictCloseRequestReader
             Handle = handle,
             DryRun = dryRun,
             CloseAll = closeAll,
-            AllProcesses = allProcesses
+            AllProcesses = allProcesses,
+            PlanId = planId
         };
         return true;
     }
