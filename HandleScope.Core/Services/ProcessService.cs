@@ -5,9 +5,29 @@ namespace HandleScope.Services;
 
 public sealed class ProcessService
 {
+    private readonly ProcessIdentityService _identityService;
+
+    public ProcessService()
+        : this(new ProcessIdentityService())
+    {
+    }
+
+    public ProcessService(ProcessIdentityService identityService)
+    {
+        ArgumentNullException.ThrowIfNull(identityService);
+        _identityService = identityService;
+    }
+
     public IReadOnlyList<ProcessRow> GetProcesses()
     {
-        var rows = new List<ProcessRow>();
+        return GetProcessSnapshots()
+            .Select(snapshot => snapshot.Row)
+            .ToArray();
+    }
+
+    public IReadOnlyList<ProcessSnapshot> GetProcessSnapshots()
+    {
+        var snapshots = new List<ProcessSnapshot>();
 
         foreach (var process in Process.GetProcesses())
         {
@@ -15,6 +35,7 @@ public sealed class ProcessService
             {
                 try
                 {
+                    var identity = _identityService.GetIdentity(process.Id);
                     int? handleCount = null;
                     long? workingSet = null;
 
@@ -36,22 +57,27 @@ public sealed class ProcessService
                         // Keep the process visible even when memory data is unavailable.
                     }
 
-                    rows.Add(new ProcessRow(
-                        process.Id,
-                        process.ProcessName,
+                    var row = new ProcessRow(
+                        identity.ProcessId,
+                        identity.ProcessName,
                         handleCount,
-                        workingSet));
+                        workingSet)
+                    {
+                        ProcessCreationTimeUtcFileTime =
+                            identity.CreationTimeUtcFileTime
+                    };
+                    snapshots.Add(new ProcessSnapshot(row, identity));
                 }
                 catch
                 {
-                    // Processes can exit while the snapshot is being built.
+                    // Exiting or protected processes cannot provide a pinned identity.
                 }
             }
         }
 
-        return rows
-            .OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(row => row.ProcessId)
+        return snapshots
+            .OrderBy(snapshot => snapshot.Row.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(snapshot => snapshot.Row.ProcessId)
             .ToArray();
     }
 }

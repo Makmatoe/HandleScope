@@ -52,22 +52,24 @@ For every launch operation, SessionDock must:
    response sizes.
 8. Call `/v1/health` and require policy `roblox-singleton-event-v1` before
    sending the bearer token.
-9. Send an exact-PID request with `allProcesses: false`, completing a successful
-   dry run before the identical single-use execution request within five
-   seconds. The fixed bounded retry window exists only to allow the newly
-   launched process to create its event.
+9. Send an exact-PID request with `allProcesses: false`. Require the successful
+   dry-run response to contain a 43-character base64url `planId`, then send the
+   identical selector with `dryRun: false` and that `planId` within five seconds.
+   Never reuse a plan ID. The fixed bounded retry window exists only to allow
+   the newly launched process to create its event.
 10. Require the execution response to report the launched PID in `closed`, at
     least one closure, and no failures.
 11. Only after step 10 succeeds, optionally read and validate a fresh connection
     document and perform a second dry-run/execution pair using the fixed process
     name and `allProcesses: true`.
-12. Never persist, display, log, export, or send either short-lived token to any
-    other address.
+12. Never persist, display, log, export, or send the bearer token or short-lived
+    plan IDs to any other address.
 
 SessionDock implements this HTTP v1 flow directly. The included
 `Invoke-HandleScopeClose.ps1` client demonstrates the same discovery, health
 validation, policy checks, safe HTTP options, and dry-run-before-execution
-contract for manual use; SessionDock does not invoke or copy that script.
+contract—including plan-ID binding—for manual use; SessionDock does not invoke
+or copy that script.
 
 ## Explicit local setup
 

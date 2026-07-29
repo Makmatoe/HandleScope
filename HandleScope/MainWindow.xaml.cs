@@ -12,16 +12,16 @@ namespace HandleScope;
 public partial class MainWindow : Window
 {
     private readonly HandleService _handleService = new();
-    private readonly ProcessService _processService = new();
     private readonly ProcessIdentityService _identityService = new();
+    private readonly ProcessService _processService;
     private readonly ObservableCollection<ProcessRow> _processes = [];
-    private readonly Dictionary<int, long> _allowedProcessInstances = [];
     private readonly ProcessIdentity _currentIdentity;
     private CancellationTokenSource? _scanCancellation;
     private bool _isBusy;
 
     public MainWindow()
     {
+        _processService = new ProcessService(_identityService);
         _currentIdentity = _identityService.GetIdentity(Environment.ProcessId);
         InitializeComponent();
         ProcessesView = CollectionViewSource.GetDefaultView(_processes);
@@ -69,11 +69,9 @@ public partial class MainWindow : Window
             var selectedPid = (ProcessesGrid.SelectedItem as ProcessRow)?.ProcessId;
 
             _processes.Clear();
-            _allowedProcessInstances.Clear();
-            foreach (var item in rows)
+            foreach (var row in rows)
             {
-                _processes.Add(item.Row);
-                _allowedProcessInstances[item.Row.ProcessId] = item.CreationTime;
+                _processes.Add(row);
             }
 
             ProcessesView.Refresh();
@@ -155,7 +153,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!TryRevalidateProcess(process.ProcessId, out _))
+        if (!TryRevalidateProcess(
+                process.ProcessId,
+                process.ProcessCreationTimeUtcFileTime,
+                out _))
         {
             await RefreshProcessesAsync();
             MessageBox.Show(
@@ -193,6 +194,7 @@ public partial class MainWindow : Window
             var results = await Task.Run(
                 () => _handleService.FindHandles(
                     process.ProcessId,
+                    process.ProcessCreationTimeUtcFileTime,
                     handleName,
                     matchMode,
                     progress,
@@ -289,8 +291,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!TryRevalidateProcess(entry.ProcessId, out var identity) ||
-            identity.CreationTimeUtcFileTime != entry.ProcessCreationTimeUtcFileTime)
+        if (!TryRevalidateProcess(
+                entry.ProcessId,
+                entry.ProcessCreationTimeUtcFileTime,
+                out _))
         {
             ShowError(
                 "The target process changed. Refresh and scan again.",
@@ -362,14 +366,15 @@ public partial class MainWindow : Window
 
     private bool TryRevalidateProcess(
         int processId,
+        long expectedCreationTimeUtcFileTime,
         out ProcessIdentity identity)
     {
         try
         {
             identity = _identityService.GetIdentity(processId);
             return IsAllowedProcess(identity) &&
-                   _allowedProcessInstances.TryGetValue(processId, out var creationTime) &&
-                   creationTime == identity.CreationTimeUtcFileTime;
+                   expectedCreationTimeUtcFileTime > 0 &&
+                   expectedCreationTimeUtcFileTime == identity.CreationTimeUtcFileTime;
         }
         catch
         {
@@ -386,26 +391,21 @@ public partial class MainWindow : Window
             _currentIdentity.OwnerSid,
             StringComparison.Ordinal);
 
-    private IReadOnlyList<(ProcessRow Row, long CreationTime)> GetAllowedProcessRows()
+    private IReadOnlyList<ProcessRow> GetAllowedProcessRows()
     {
-        var allowed = new List<(ProcessRow Row, long CreationTime)>();
-        foreach (var row in _processService.GetProcesses())
+        var allowed = new List<ProcessRow>();
+        foreach (var snapshot in _processService.GetProcessSnapshots())
         {
-            try
+            if (IsAllowedProcess(snapshot.Identity))
             {
-                var identity = _identityService.GetIdentity(row.ProcessId);
-                if (IsAllowedProcess(identity))
-                {
-                    allowed.Add((row, identity.CreationTimeUtcFileTime));
-                }
-            }
-            catch
-            {
-                // Exiting, protected, elevated, and other-user processes stay hidden.
+                allowed.Add(snapshot.Row);
             }
         }
 
-        return allowed;
+        return allowed
+            .OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(row => row.ProcessId)
+            .ToArray();
     }
 
     private bool CanCopyAutomationCommand() =>

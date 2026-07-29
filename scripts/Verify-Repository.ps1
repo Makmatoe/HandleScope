@@ -38,6 +38,7 @@ $requiredPaths = @(
     'ReleaseNotes\0.1.0.md'
     'ReleaseNotes\0.1.1.md'
     'ReleaseNotes\0.1.2.md'
+    'ReleaseNotes\0.1.3.md'
     'scripts\Finalize-Release.ps1'
     'scripts\Publish-Release.ps1'
     'scripts\Test-PowerShellCompatibility.ps1'
@@ -115,29 +116,128 @@ catch {
     $failures.Add("Directory.Build.props is not valid XML: $($_.Exception.Message)")
 }
 
-$projectFiles = Get-ChildItem `
-    -LiteralPath $repositoryRoot `
-    -Recurse `
-    -File `
-    -Filter '*.csproj' |
-    Where-Object {
-        $_.FullName -notmatch '[\\/](bin|obj|artifacts)[\\/]'
+$excludedBuildDirectoryPattern =
+    '[\\/](\.git|bin|obj|artifacts|TestResults|coverage)[\\/]'
+$projectFiles = @(
+    Get-ChildItem `
+        -LiteralPath $repositoryRoot `
+        -Recurse `
+        -File `
+        -Filter '*.csproj' |
+        Where-Object {
+            $_.FullName -notmatch $excludedBuildDirectoryPattern
+        }
+)
+
+$msBuildInputFiles = @(
+    Get-ChildItem `
+        -LiteralPath $repositoryRoot `
+        -Recurse `
+        -File |
+        Where-Object {
+            $_.Extension -in @('.csproj', '.props', '.targets') -and
+            $_.FullName -notmatch $excludedBuildDirectoryPattern
+        }
+)
+foreach ($msBuildInputFile in $msBuildInputFiles) {
+    if (Select-String `
+            -LiteralPath $msBuildInputFile.FullName `
+            -Pattern '<PackageReference\b' `
+            -Quiet) {
+        $relativePath = Get-RepositoryRelativePath -Path $msBuildInputFile.FullName
+        $failures.Add("PackageReference entry found in MSBuild input $relativePath.")
     }
+}
 
 foreach ($projectFile in $projectFiles) {
-    $packageReference = Select-String `
-        -LiteralPath $projectFile.FullName `
-        -Pattern '<PackageReference\b' `
-        -Quiet
-    if ($packageReference) {
-        $relativePath = Get-RepositoryRelativePath -Path $projectFile.FullName
-        $failures.Add("Third-party PackageReference found in $relativePath.")
+    foreach ($configuration in @('Debug', 'Release')) {
+        $evaluationOutput = @(
+            & dotnet msbuild $projectFile.FullName `
+                -nologo `
+                '-getItem:PackageReference' `
+                "-p:Configuration=$configuration" `
+                '-p:RuntimeIdentifier=win-x64'
+        )
+        $evaluationExitCode = $LASTEXITCODE
+        if ($evaluationExitCode -ne 0) {
+            $relativePath = Get-RepositoryRelativePath -Path $projectFile.FullName
+            $failures.Add(
+                "MSBuild PackageReference evaluation failed for $relativePath ($configuration).")
+            continue
+        }
+        try {
+            $evaluation = ($evaluationOutput -join "`n") | ConvertFrom-Json
+            $evaluatedReferences = @($evaluation.Items.PackageReference)
+            if ($evaluatedReferences.Count -ne 0) {
+                $relativePath = Get-RepositoryRelativePath -Path $projectFile.FullName
+                $failures.Add(
+                    "Evaluated PackageReference found in $relativePath ($configuration).")
+            }
+        }
+        catch {
+            $relativePath = Get-RepositoryRelativePath -Path $projectFile.FullName
+            $failures.Add(
+                "MSBuild PackageReference evaluation was not valid JSON for ${relativePath}: $($_.Exception.Message)")
+        }
     }
 
     $lockFile = Join-Path $projectFile.DirectoryName 'packages.lock.json'
     if (-not (Test-Path -LiteralPath $lockFile -PathType Leaf)) {
         $relativePath = Get-RepositoryRelativePath -Path $projectFile.FullName
         $failures.Add("NuGet lock file is missing beside $relativePath.")
+    }
+
+    $restoreGraphPath = [IO.Path]::GetTempFileName()
+    try {
+        & dotnet msbuild $projectFile.FullName `
+            -nologo `
+            '-t:GenerateRestoreGraphFile' `
+            "-p:RestoreGraphOutputPath=$restoreGraphPath" `
+            '-p:Configuration=Release' `
+            '-p:RuntimeIdentifier=win-x64' |
+            Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            $relativePath = Get-RepositoryRelativePath -Path $projectFile.FullName
+            $failures.Add("NuGet restore-graph generation failed for $relativePath.")
+            continue
+        }
+
+        try {
+            $restoreGraph = Get-Content -LiteralPath $restoreGraphPath -Raw |
+                ConvertFrom-Json
+            foreach ($graphProject in $restoreGraph.projects.PSObject.Properties) {
+                $frameworksProperty =
+                    $graphProject.Value.PSObject.Properties['frameworks']
+                if ($null -eq $frameworksProperty) {
+                    continue
+                }
+                foreach ($framework in $frameworksProperty.Value.PSObject.Properties) {
+                    $dependenciesProperty =
+                        $framework.Value.PSObject.Properties['dependencies']
+                    if ($null -eq $dependenciesProperty) {
+                        continue
+                    }
+                    $dependencies = @(
+                        $dependenciesProperty.Value.PSObject.Properties |
+                            Select-Object -ExpandProperty Name
+                    )
+                    if ($dependencies.Count -ne 0) {
+                        $relativeGraphProject = Get-RepositoryRelativePath `
+                            -Path $graphProject.Name
+                        $failures.Add(
+                            "NuGet restore graph contains package dependencies for ${relativeGraphProject}: $($dependencies -join ', ')")
+                    }
+                }
+            }
+        }
+        catch {
+            $relativePath = Get-RepositoryRelativePath -Path $projectFile.FullName
+            $failures.Add(
+                "NuGet restore graph was not valid JSON for ${relativePath}: $($_.Exception.Message)")
+        }
+    }
+    finally {
+        [IO.File]::Delete($restoreGraphPath)
     }
 }
 
@@ -350,6 +450,161 @@ if (Test-Path -LiteralPath $releaseWorkflowPath -PathType Leaf) {
     }
     if ($releaseWorkflow -match '(?m)\s--clobber(?:\s|$)') {
         $failures.Add('Release publication must not replace existing draft assets.')
+    }
+
+    $redownloadIndex = $releaseWorkflow.LastIndexOf(
+        'gh release download',
+        [StringComparison]::Ordinal)
+    $byteComparisonIndex = $releaseWorkflow.LastIndexOf(
+        '$remoteHash = (Get-FileHash',
+        [StringComparison]::Ordinal)
+    $redownloadVerificationIndex = $releaseWorkflow.LastIndexOf(
+        './scripts/Verify-ReleaseAssets.ps1',
+        [StringComparison]::Ordinal)
+    if ($redownloadIndex -lt 0 -or
+        $byteComparisonIndex -le $redownloadIndex -or
+        $redownloadVerificationIndex -le $byteComparisonIndex) {
+        $failures.Add('Redownloaded release assets must be byte-compared with the trusted artifact before semantic verification.')
+    }
+}
+
+$releaseAssetVerifierPath = Join-Path `
+    $repositoryRoot `
+    'scripts\Verify-ReleaseAssets.ps1'
+if (Test-Path -LiteralPath $releaseAssetVerifierPath -PathType Leaf) {
+    $verifierTokens = $null
+    $verifierParseErrors = $null
+    $verifierAst = [Management.Automation.Language.Parser]::ParseFile(
+        $releaseAssetVerifierPath,
+        [ref]$verifierTokens,
+        [ref]$verifierParseErrors)
+    $invocationOperators = @(
+        $verifierAst.FindAll(
+            {
+                param($node)
+                $node -is [Management.Automation.Language.CommandAst] -and
+                $node.InvocationOperator -in @(
+                    [Management.Automation.Language.TokenKind]::Ampersand,
+                    [Management.Automation.Language.TokenKind]::Dot)
+            },
+            $true)
+    )
+    $executableCommands = @(
+        $verifierAst.FindAll(
+            {
+                param($node)
+                if ($node -isnot [Management.Automation.Language.CommandAst]) {
+                    return $false
+                }
+                $commandName = $node.GetCommandName()
+                return -not [string]::IsNullOrWhiteSpace($commandName) -and
+                    ($commandName -match '(?i)\.(?:ps1|psm1|exe|com|bat|cmd)$' -or
+                    $commandName -in @(
+                        'cmd',
+                        'cscript',
+                        'Invoke-Expression',
+                        'mshta',
+                        'powershell',
+                        'pwsh',
+                        'rundll32',
+                        'Start-Process',
+                        'wscript'))
+            },
+            $true)
+    )
+    $verifierSource = [IO.File]::ReadAllText($releaseAssetVerifierPath)
+    if ($invocationOperators.Count -ne 0 -or
+        $executableCommands.Count -ne 0 -or
+        $verifierSource -match '(?i)\[Diagnostics\.Process\]::Start|\[System\.Diagnostics\.Process\]::Start') {
+        $failures.Add('Release asset verification must treat extracted files as data and never execute them.')
+    }
+}
+
+$verificationGuidePath = Join-Path $repositoryRoot 'docs\VERIFY_DOWNLOAD.md'
+if (Test-Path -LiteralPath $verificationGuidePath -PathType Leaf) {
+    $verificationGuide = [IO.File]::ReadAllText($verificationGuidePath)
+    if ($verificationGuide -match
+        '(?i)(?:HandleScope-|verify-asset\s+v)\d+\.\d+\.\d+') {
+        $failures.Add('Download verification guide must not hard-code a release version.')
+    }
+    foreach ($requiredGuideControl in @(
+            '$version = $Matches.version',
+            '$assetBaseName = "HandleScope-$version-win-x64"',
+            'gh attestation verify $zip.FullName',
+            'gh release verify-asset $tag $zip.FullName')) {
+        if ($verificationGuide.IndexOf(
+                $requiredGuideControl,
+                [StringComparison]::Ordinal) -lt 0) {
+            $failures.Add(
+                "Download verification guide is missing its version-neutral control: $requiredGuideControl")
+        }
+    }
+}
+
+$finalizeReleasePath = Join-Path $repositoryRoot 'scripts\Finalize-Release.ps1'
+if (Test-Path -LiteralPath $finalizeReleasePath -PathType Leaf) {
+    $pathGuardRoot = 'artifacts\release-path-guard-' +
+        [Guid]::NewGuid().ToString('N')
+    $overlappingPathCases = @(
+        @($pathGuardRoot, $pathGuardRoot),
+        @($pathGuardRoot, (Join-Path $pathGuardRoot 'output')),
+        @((Join-Path $pathGuardRoot 'input'), $pathGuardRoot)
+    )
+    foreach ($pathCase in $overlappingPathCases) {
+        try {
+            & $finalizeReleasePath `
+                -InputDirectory $pathCase[0] `
+                -OutputDirectory $pathCase[1]
+            $failures.Add('Release finalization accepted overlapping input and output paths.')
+        }
+        catch {
+            if ($_.Exception.Message -cne
+                'Release input and output must be separate, non-overlapping directories.') {
+                $failures.Add(
+                    "Release finalization did not fail at its overlap guard: $($_.Exception.Message)")
+            }
+        }
+    }
+
+    $pathGuardFullRoot = [IO.Path]::GetFullPath(
+        (Join-Path $repositoryRoot $pathGuardRoot))
+    $physicalInput = Join-Path $pathGuardFullRoot 'physical-input'
+    $inputAlias = Join-Path $pathGuardFullRoot 'input-alias'
+    try {
+        New-Item `
+            -ItemType Directory `
+            -Path $physicalInput `
+            -Force | Out-Null
+        New-Item `
+            -ItemType Junction `
+            -Path $inputAlias `
+            -Target $physicalInput | Out-Null
+        try {
+            & $finalizeReleasePath `
+                -InputDirectory $physicalInput `
+                -OutputDirectory (Join-Path $inputAlias 'output')
+            $failures.Add(
+                'Release finalization accepted a path that traverses a junction into its input tree.')
+        }
+        catch {
+            if ($_.Exception.Message -cnotlike
+                'Release paths must not traverse filesystem links:*') {
+                $failures.Add(
+                    "Release finalization did not fail at its filesystem-link guard: $($_.Exception.Message)")
+            }
+        }
+    }
+    catch {
+        $failures.Add(
+            "Release filesystem-link regression setup failed: $($_.Exception.Message)")
+    }
+    finally {
+        if (Test-Path -LiteralPath $inputAlias) {
+            Remove-Item -LiteralPath $inputAlias -Force
+        }
+        if (Test-Path -LiteralPath $pathGuardFullRoot) {
+            Remove-Item -LiteralPath $pathGuardFullRoot -Recurse -Force
+        }
     }
 }
 

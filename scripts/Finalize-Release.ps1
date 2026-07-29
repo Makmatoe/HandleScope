@@ -110,6 +110,53 @@ function Assert-ExactList {
     }
 }
 
+function Test-PathNestedWithin {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+
+        [Parameter(Mandatory)]
+        [string]$PotentialParent
+    )
+
+    $parentPrefix = $PotentialParent.TrimEnd('\', '/') +
+        [IO.Path]::DirectorySeparatorChar
+    return $Path.StartsWith(
+        $parentPrefix,
+        [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Assert-ArtifactPathHasNoFileSystemLinks {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $relativePath = $Path.Substring($artifactsPrefix.Length)
+    $currentPath = $artifactsRoot
+    foreach ($component in $relativePath.Split(
+            [IO.Path]::DirectorySeparatorChar,
+            [StringSplitOptions]::RemoveEmptyEntries)) {
+        $currentPath = Join-Path $currentPath $component
+        if (-not (Test-Path `
+                -LiteralPath $currentPath `
+                -ErrorAction Stop)) {
+            break
+        }
+
+        $item = Get-Item `
+            -LiteralPath $currentPath `
+            -Force `
+            -ErrorAction Stop
+        $linkTypeProperty = $item.PSObject.Properties['LinkType']
+        if ($null -ne $linkTypeProperty -and
+            -not [string]::IsNullOrWhiteSpace(
+                [string]$linkTypeProperty.Value)) {
+            throw "Release paths must not traverse filesystem links: $currentPath"
+        }
+    }
+}
+
 function Remove-ReviewedArtifactDirectory {
     param(
         [Parameter(Mandatory)]
@@ -119,6 +166,7 @@ function Remove-ReviewedArtifactDirectory {
     if (-not (Test-Path -LiteralPath $Path)) {
         return
     }
+    Assert-ArtifactPathHasNoFileSystemLinks -Path $Path
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
         throw "Refusing to replace a non-directory release output: $Path"
     }
@@ -136,16 +184,21 @@ function Remove-ReviewedArtifactDirectory {
     if ($linkedItems.Count -ne 0) {
         throw "Refusing to remove release output containing filesystem links: $($linkedItems.FullName -join ', ')"
     }
+    Assert-ArtifactPathHasNoFileSystemLinks -Path $Path
     Remove-Item -LiteralPath $Path -Recurse -Force
 }
 
 $inputRoot = Resolve-ArtifactPath -Path $InputDirectory
 $outputRoot = Resolve-ArtifactPath -Path $OutputDirectory
-if ($inputRoot -eq $outputRoot -or
-    $outputRoot.StartsWith(
-        $inputRoot.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar,
-        [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'Release output must not overwrite or be nested inside release input.'
+Assert-ArtifactPathHasNoFileSystemLinks -Path $inputRoot
+Assert-ArtifactPathHasNoFileSystemLinks -Path $outputRoot
+if ([string]::Equals(
+        $inputRoot,
+        $outputRoot,
+        [StringComparison]::OrdinalIgnoreCase) -or
+    (Test-PathNestedWithin -Path $outputRoot -PotentialParent $inputRoot) -or
+    (Test-PathNestedWithin -Path $inputRoot -PotentialParent $outputRoot)) {
+    throw 'Release input and output must be separate, non-overlapping directories.'
 }
 if (-not (Test-Path -LiteralPath $inputRoot -PathType Container)) {
     throw "Release input was not found: $inputRoot"

@@ -136,6 +136,18 @@ if (Test-Path -LiteralPath $installRoot) {
 }
 
 $installedExecutable = Join-Path $installRoot 'HandleScope.Api.exe'
+$taskIdentity = Get-HandleScopeTaskIdentity
+$existingAutostartTask = Get-ScheduledTask `
+    -TaskName $taskIdentity.TaskName `
+    -TaskPath $taskIdentity.TaskPath `
+    -ErrorAction SilentlyContinue
+$existingAutostartState = Get-HandleScopeAutostartState `
+    -Task $existingAutostartTask `
+    -ExpectedExecutable $installedExecutable
+if ($existingAutostartState -ceq 'Unexpected') {
+    throw 'An unexpected scheduled task already occupies the HandleScope per-user task path.'
+}
+
 if (Test-Path -LiteralPath $installedExecutable -PathType Leaf) {
     $sourceVersion = [Version]([Diagnostics.FileVersionInfo]::GetVersionInfo(
         $sourceExecutable).FileVersion)
@@ -213,26 +225,6 @@ Remove-HandleScopeLocalItem `
     -IgnoreMissing
 
 if ($EnableAutostart) {
-    $taskIdentity = Get-HandleScopeTaskIdentity
-    $existingTask = Get-ScheduledTask `
-        -TaskName $taskIdentity.TaskName `
-        -TaskPath $taskIdentity.TaskPath `
-        -ErrorAction SilentlyContinue
-    if ($null -ne $existingTask) {
-        if ($existingTask.Actions.Count -ne 1) {
-            throw 'An unexpected scheduled task already occupies the HandleScope per-user task path.'
-        }
-        $expectedExecutable = [IO.Path]::GetFullPath($installedExecutable)
-        $actualExecutable = [IO.Path]::GetFullPath(
-            [Environment]::ExpandEnvironmentVariables(
-                [string]$existingTask.Actions[0].Execute))
-        if ($actualExecutable -cne $expectedExecutable -or
-            -not [string]::IsNullOrEmpty([string]$existingTask.Actions[0].Arguments) -or
-            $existingTask.Principal.RunLevel -ne 'Limited') {
-            throw 'An unexpected scheduled task already occupies the HandleScope per-user task path.'
-        }
-    }
-
     $action = New-ScheduledTaskAction `
         -Execute $installedExecutable `
         -WorkingDirectory $installRoot
@@ -256,7 +248,6 @@ if ($EnableAutostart) {
         -Principal $principal `
         -Description 'Runs the restricted HandleScope Roblox automation API for this user.' `
         -Force | Out-Null
-    Write-Host 'Per-user standard-privilege autostart enabled.'
 }
 
 if ($StartNow) {
@@ -268,6 +259,29 @@ if ($EnableSessionDock) {
 }
 
 Write-Host "HandleScope API installed for the current user at $installRoot"
-if (-not $EnableAutostart) {
-    Write-Host 'Autostart remains disabled. Re-run with -EnableAutostart to opt in.'
+$installedAutostartTask = Get-ScheduledTask `
+    -TaskName $taskIdentity.TaskName `
+    -TaskPath $taskIdentity.TaskPath `
+    -ErrorAction SilentlyContinue
+$installedAutostartState = Get-HandleScopeAutostartState `
+    -Task $installedAutostartTask `
+    -ExpectedExecutable $installedExecutable
+switch ($installedAutostartState) {
+    'Enabled' {
+        if ($EnableAutostart) {
+            Write-Host 'Per-user standard-privilege autostart enabled.'
+        }
+        else {
+            Write-Host 'Per-user standard-privilege autostart remains enabled.'
+        }
+    }
+    'Disabled' {
+        Write-Host 'The existing HandleScope autostart task remains disabled. Re-run with -EnableAutostart to enable it.'
+    }
+    'Absent' {
+        Write-Host 'Autostart remains disabled. Re-run with -EnableAutostart to opt in.'
+    }
+    default {
+        throw 'HandleScope could not verify the installed autostart task state.'
+    }
 }

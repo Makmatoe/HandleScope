@@ -8,6 +8,7 @@ using HandleScope.Services;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Win32.SafeHandles;
 
 if (args is ["--target", var targetPath, var targetEventName])
 {
@@ -78,6 +79,10 @@ catch (ArgumentException)
 {
     // Production accepts only the 43-character base64url token it generates.
 }
+
+VerifyDryRunPlanIsolationAndExpiry();
+VerifyAuthorizedProcessCap();
+VerifyDeterministicExecutableVerifier();
 
 using var target = Process.Start(new ProcessStartInfo
 {
@@ -150,6 +155,41 @@ try
             "The controlled target process identity was incomplete or inconsistent.");
     }
 
+    var displayedSnapshot = new ProcessService(identityService)
+        .GetProcessSnapshots()
+        .SingleOrDefault(snapshot => snapshot.Row.ProcessId == target.Id);
+    if (displayedSnapshot is null ||
+        displayedSnapshot.Identity.CreationTimeUtcFileTime !=
+            displayedSnapshot.Row.ProcessCreationTimeUtcFileTime ||
+        !string.Equals(
+            displayedSnapshot.Identity.ProcessName,
+            displayedSnapshot.Row.Name,
+            StringComparison.Ordinal) ||
+        displayedSnapshot.Identity.CreationTimeUtcFileTime !=
+            identity.CreationTimeUtcFileTime)
+    {
+        throw new InvalidOperationException(
+            "The displayed process row was not paired with the identity that supplied its name.");
+    }
+
+    try
+    {
+        _ = service.FindHandles(
+            target.Id,
+            checked(identity.CreationTimeUtcFileTime + 1),
+            temporaryPath,
+            HandleMatchMode.Exact,
+            progress: null,
+            CancellationToken.None);
+        throw new InvalidOperationException(
+            "A handle scan accepted a mismatched process creation time.");
+    }
+    catch (InvalidOperationException exception)
+        when (exception.Message.Contains("different process", StringComparison.OrdinalIgnoreCase))
+    {
+        // The identity-pinned scan rejected a simulated PID reuse before resolving handles.
+    }
+
     try
     {
         service.CloseHandle(fileMatch with
@@ -164,6 +204,21 @@ try
         when (exception.Message.Contains("different process", StringComparison.OrdinalIgnoreCase))
     {
         // The process-identity guard rejected a simulated PID reuse.
+    }
+
+    try
+    {
+        service.CloseHandle(fileMatch with
+        {
+            GrantedAccess = fileMatch.GrantedAccess ^ 1U
+        });
+        throw new InvalidOperationException(
+            "A handle with mismatched access rights was closed.");
+    }
+    catch (InvalidOperationException exception)
+        when (exception.Message.Contains("access rights changed", StringComparison.OrdinalIgnoreCase))
+    {
+        // The access-mask guard rejected a stale or substituted handle snapshot.
     }
 
     service.CloseHandle(fileMatch);
@@ -380,6 +435,23 @@ try
                 }
             }
 
+            using (var lookalikeJsonContent = new StringContent(
+                       strictJson,
+                       System.Text.Encoding.UTF8))
+            {
+                lookalikeJsonContent.Headers.ContentType =
+                    MediaTypeHeaderValue.Parse("application/jsonp");
+                var lookalikeJsonResponse = await client.PostAsync(
+                    "/v1/handles/close",
+                    lookalikeJsonContent);
+                if (lookalikeJsonResponse.StatusCode !=
+                    System.Net.HttpStatusCode.UnsupportedMediaType)
+                {
+                    throw new InvalidOperationException(
+                        "The API accepted an application/json lookalike media type.");
+                }
+            }
+
             using (var oversizedContent = new StringContent(
                        new string('x', (8 * 1024) + 1),
                        System.Text.Encoding.UTF8,
@@ -438,7 +510,7 @@ try
             var executeWithoutPlan = await client.PostAsJsonAsync(
                 "/v1/handles/close",
                 CreateControlledRequest(target.Id, eventMatch, dryRun: false));
-            if (executeWithoutPlan.StatusCode != System.Net.HttpStatusCode.Conflict)
+            if (executeWithoutPlan.StatusCode != System.Net.HttpStatusCode.BadRequest)
             {
                 throw new InvalidOperationException(
                     "The API executed without a preceding dry-run plan.");
@@ -454,6 +526,7 @@ try
                     $"The API selector dry run failed ({(int)dryRunResponse.StatusCode}): {dryRunJson}");
             }
 
+            string planId;
             using (var dryRunDocument = JsonDocument.Parse(dryRunJson))
             {
                 if (dryRunDocument.RootElement.GetProperty("matchCount").GetInt32() != 1 ||
@@ -475,11 +548,24 @@ try
                     throw new InvalidOperationException(
                         "The API response exposed a token, handle value, native name, or object address.");
                 }
+
+                planId = dryRunDocument.RootElement
+                    .GetProperty("planId")
+                    .GetString()!;
+                if (!DryRunPlanStore.IsCanonicalPlanId(planId))
+                {
+                    throw new InvalidOperationException(
+                        "The API dry run did not issue a canonical single-use plan identifier.");
+                }
             }
 
             var closeResponse = await client.PostAsJsonAsync(
                 "/v1/handles/close",
-                CreateControlledRequest(target.Id, eventMatch, dryRun: false));
+                CreateControlledRequest(
+                    target.Id,
+                    eventMatch,
+                    dryRun: false,
+                    planId));
             var responseJson = await closeResponse.Content.ReadAsStringAsync();
 
             if (!closeResponse.IsSuccessStatusCode)
@@ -498,7 +584,11 @@ try
 
             var replayResponse = await client.PostAsJsonAsync(
                 "/v1/handles/close",
-                CreateControlledRequest(target.Id, eventMatch, dryRun: false));
+                CreateControlledRequest(
+                    target.Id,
+                    eventMatch,
+                    dryRun: false,
+                    planId));
             if (replayResponse.StatusCode != System.Net.HttpStatusCode.Conflict)
             {
                 throw new InvalidOperationException(
@@ -524,8 +614,9 @@ try
     Console.WriteLine(
         $"PASS: closed file {fileMatch.HandleDisplay}; verified connection JSON, authentication, " +
         $"browser rejection, ambient-listener rejection, bounded results, strict JSON, policy confinement, " +
-        $"single-use dry run, privacy redaction, " +
-        $"process identity, PID-reuse rejection, and stale-handle rejection in controlled PID {target.Id}.");
+        $"independent single-use plans, monotonic expiry, media-type confinement, trust policy, privacy redaction, " +
+        $"authorized-process limits, complete responses, process identity, PID-reuse rejection, access-mask " +
+        $"revalidation, and stale-handle rejection in controlled PID {target.Id}.");
 }
 finally
 {
@@ -541,7 +632,8 @@ finally
 static CloseHandlesRequest CreateControlledRequest(
     int processId,
     HandleEntry handle,
-    bool dryRun) =>
+    bool dryRun,
+    string? planId = null) =>
     new()
     {
         Process = new ProcessSelector { Pid = processId },
@@ -554,8 +646,246 @@ static CloseHandlesRequest CreateControlledRequest(
         },
         DryRun = dryRun,
         CloseAll = false,
-        AllProcesses = false
+        AllProcesses = false,
+        PlanId = planId
     };
+
+static void VerifyDryRunPlanIsolationAndExpiry()
+{
+    var clock = new ManualTimeProvider(
+        new DateTimeOffset(2026, 7, 29, 12, 0, 0, TimeSpan.Zero));
+    var store = new DryRunPlanStore(clock);
+    const string canonicalKey = "same-reviewed-operation";
+    var firstPlanId = store.Put(canonicalKey, 1, 0, []);
+    var secondPlanId = store.Put(canonicalKey, 2, 0, []);
+    if (firstPlanId == secondPlanId ||
+        !DryRunPlanStore.IsCanonicalPlanId(firstPlanId) ||
+        !DryRunPlanStore.IsCanonicalPlanId(secondPlanId))
+    {
+        throw new InvalidOperationException(
+            "Two dry runs for the same operation did not receive independent random plan identifiers.");
+    }
+
+    if (!store.TryTake(firstPlanId, canonicalKey, out var firstPlan) ||
+        firstPlan?.ProcessCount != 1 ||
+        !store.TryTake(secondPlanId, canonicalKey, out var secondPlan) ||
+        secondPlan?.ProcessCount != 2)
+    {
+        throw new InvalidOperationException(
+            "A later dry run overwrote another client's reviewed plan.");
+    }
+
+    var expiringPlanId = store.Put(canonicalKey, 1, 0, []);
+    clock.MoveUtcBackward(TimeSpan.FromDays(1));
+    clock.AdvanceTimestamp(TimeSpan.FromSeconds(6));
+    if (store.TryTake(expiringPlanId, canonicalKey, out _))
+    {
+        throw new InvalidOperationException(
+            "A dry-run plan survived its monotonic five-second lifetime after the wall clock moved backward.");
+    }
+
+    var identity = new ProcessIdentity(
+        101,
+        "RobloxPlayerBeta",
+        @"C:\Roblox\Versions\version-test\RobloxPlayerBeta.exe",
+        1,
+        "S-1-5-21-1000",
+        false,
+        1);
+    var handles = Enumerable.Range(1, 3)
+        .Select(index => new HandleEntry(
+            identity.ProcessId,
+            (nuint)index,
+            (nuint)(100 + index),
+            RobloxAutomationRecipe.HandleAccess,
+            RobloxAutomationRecipe.HandleType,
+            GetRobloxHandleName(identity.WindowsSessionId),
+            GetRobloxHandleName(identity.WindowsSessionId))
+        {
+            ProcessCreationTimeUtcFileTime = identity.CreationTimeUtcFileTime
+        })
+        .ToArray();
+    var plannedMatches = ApiHost.GetPlannedMatches(new DryRunPlan(
+        new string('A', 43),
+        canonicalKey,
+        clock.GetTimestamp(),
+        1,
+        1,
+        0,
+        [new AuthorizedProcessPlan(identity, handles)]));
+    if (plannedMatches.Length != handles.Length)
+    {
+        throw new InvalidOperationException(
+            "The execution response silently truncated reviewed matches.");
+    }
+}
+
+static void VerifyAuthorizedProcessCap()
+{
+    var request = new CloseHandlesRequest
+    {
+        Process = new ProcessSelector { Name = RobloxAutomationRecipe.ProcessName },
+        Handle = new HandleSelector
+        {
+            Name = GetRobloxHandleName(1),
+            Match = "exact",
+            Type = RobloxAutomationRecipe.HandleType,
+            Access = $"0x{RobloxAutomationRecipe.HandleAccess:X8}"
+        },
+        DryRun = true,
+        AllProcesses = true,
+        CloseAll = false
+    };
+    var authorization = new AutomationRequestAuthorization(
+        true,
+        1,
+        "candidate-cap-test",
+        string.Empty,
+        RobloxAutomationRecipe.ProcessName,
+        RobloxAutomationRecipe.HandleType,
+        RobloxAutomationRecipe.HandleAccess);
+    var candidates = Enumerable.Range(1, 64).ToArray();
+    var mostlyUnauthorized = new CandidateAutomationPolicy(
+        new HashSet<int> { 64 },
+        32);
+    var filtered = ApiHost.AuthorizeCandidateProcesses(
+        candidates,
+        request,
+        authorization,
+        mostlyUnauthorized);
+    if (filtered.TooMany || filtered.SelectedPidDenied ||
+        filtered.Authorized.Count != 1 ||
+        filtered.Authorized[0].ProcessId != 64)
+    {
+        throw new InvalidOperationException(
+            "Unauthorized lookalike processes consumed the authorized-process safety cap.");
+    }
+
+    var overLimit = ApiHost.AuthorizeCandidateProcesses(
+        Enumerable.Range(1, 33),
+        request,
+        authorization,
+        new CandidateAutomationPolicy(
+            Enumerable.Range(1, 33).ToHashSet(),
+            maximumProcessCount: 32));
+    if (!overLimit.TooMany)
+    {
+        throw new InvalidOperationException(
+            "The API did not enforce its cap after authorizing too many target processes.");
+    }
+}
+
+static void VerifyDeterministicExecutableVerifier()
+{
+    var testRoot = Path.Combine(
+        Path.GetTempPath(),
+        $"HandleScope-verifier-{Guid.NewGuid():N}");
+    var versionsRoot = Path.Combine(testRoot, "Roblox", "Versions");
+    var executablePath = Path.Combine(
+        versionsRoot,
+        "version-test",
+        "RobloxPlayerBeta.exe");
+    Directory.CreateDirectory(Path.GetDirectoryName(executablePath)!);
+    File.WriteAllText(executablePath, "controlled verifier input");
+
+    try
+    {
+        var trustServices = new ControlledExecutableTrustServices(executablePath);
+        var verifier = new RobloxExecutableVerifier([versionsRoot], trustServices);
+        if (!verifier.IsTrusted(executablePath))
+        {
+            throw new InvalidOperationException(
+                "The concrete Roblox verifier rejected a fully approved controlled executable.");
+        }
+
+        trustServices.ContainsReparsePointResult = true;
+        AssertVerifierRejects(verifier, executablePath, "a reparse-point path");
+        trustServices.ContainsReparsePointResult = false;
+
+        trustServices.HasExpectedVersionIdentityResult = false;
+        AssertVerifierRejects(verifier, executablePath, "invalid version metadata");
+        trustServices.HasExpectedVersionIdentityResult = true;
+
+        trustServices.IsSignedAndTrustedResult = false;
+        AssertVerifierRejects(verifier, executablePath, "a failed WinVerifyTrust result");
+        trustServices.IsSignedAndTrustedResult = true;
+
+        trustServices.HasExpectedSignerResult = false;
+        AssertVerifierRejects(verifier, executablePath, "the wrong signer identity");
+        trustServices.HasExpectedSignerResult = true;
+
+        trustServices.CanonicalPath = Path.Combine(
+            versionsRoot,
+            "not-a-version",
+            "RobloxPlayerBeta.exe");
+        AssertVerifierRejects(verifier, executablePath, "an invalid version directory");
+        trustServices.CanonicalPath = executablePath;
+
+        trustServices.ThrowOnCanonicalPath = true;
+        AssertVerifierRejects(verifier, executablePath, "a canonical-path failure");
+
+        var windowsTrustServices =
+            new RobloxExecutableVerifier.WindowsExecutableTrustServices();
+        using (var executableStream = new FileStream(
+                   executablePath,
+                   FileMode.Open,
+                   FileAccess.Read,
+                   FileShare.Read))
+        {
+            if (windowsTrustServices.IsSignedAndTrusted(
+                    executablePath,
+                    executableStream.SafeFileHandle))
+            {
+                throw new InvalidOperationException(
+                    "WinVerifyTrust accepted an unsigned controlled executable.");
+            }
+        }
+
+        var signerRejected = false;
+        try
+        {
+            signerRejected = !windowsTrustServices.HasExpectedSigner(executablePath);
+        }
+        catch (System.Security.Cryptography.CryptographicException)
+        {
+            signerRejected = true;
+        }
+
+        if (!signerRejected)
+        {
+            throw new InvalidOperationException(
+                "The production signer check accepted an unsigned controlled executable.");
+        }
+
+        var productionPrimitiveVerifier = new RobloxExecutableVerifier(
+            [versionsRoot],
+            windowsTrustServices);
+        if (productionPrimitiveVerifier.IsTrusted(executablePath))
+        {
+            throw new InvalidOperationException(
+                "The concrete Windows trust primitives accepted an unsigned controlled executable.");
+        }
+    }
+    finally
+    {
+        Directory.Delete(testRoot, recursive: true);
+    }
+}
+
+static void AssertVerifierRejects(
+    RobloxExecutableVerifier verifier,
+    string executablePath,
+    string scenario)
+{
+    if (verifier.IsTrusted(executablePath))
+    {
+        throw new InvalidOperationException(
+            $"The concrete Roblox verifier accepted {scenario}.");
+    }
+}
+
+static string GetRobloxHandleName(uint sessionId) =>
+    $@"\Sessions\{sessionId}\BaseNamedObjects\ROBLOX_singletonEvent";
 
 static void VerifyRestrictedRobloxPolicy(ProcessIdentity currentIdentity)
 {
@@ -600,9 +930,21 @@ static void VerifyRestrictedRobloxPolicy(ProcessIdentity currentIdentity)
             "The compiled policy rejected its one supported Roblox operation.");
     }
 
+    var validExecution = CreateRobloxPolicyRequest(
+        controlledPid,
+        checked((int)brokerIdentity.WindowsSessionId),
+        dryRun: false,
+        planId: new string('A', 43));
+    if (!policy.AuthorizeRequest(validExecution).IsAllowed)
+    {
+        throw new InvalidOperationException(
+            "The compiled policy rejected an execution bound to a canonical dry-run plan identifier.");
+    }
+
     var deniedRequests = new[]
     {
         CreateRobloxPolicyRequest(controlledPid, checked((int)brokerIdentity.WindowsSessionId), dryRun: null),
+        CreateRobloxPolicyRequest(controlledPid, checked((int)brokerIdentity.WindowsSessionId), dryRun: false),
         CreateRobloxPolicyRequest(controlledPid, checked((int)brokerIdentity.WindowsSessionId), match: "contains"),
         CreateRobloxPolicyRequest(controlledPid, checked((int)brokerIdentity.WindowsSessionId), access: "0x1F0002"),
         CreateRobloxPolicyRequest(controlledPid, checked((int)brokerIdentity.WindowsSessionId + 1)),
@@ -653,7 +995,8 @@ static CloseHandlesRequest CreateRobloxPolicyRequest(
     string match = "exact",
     string access = "0x001F0003",
     bool closeAll = false,
-    string? rawHandle = null) =>
+    string? rawHandle = null,
+    string? planId = null) =>
     new()
     {
         Process = new ProcessSelector { Pid = processId },
@@ -667,7 +1010,8 @@ static CloseHandlesRequest CreateRobloxPolicyRequest(
         },
         DryRun = dryRun,
         CloseAll = closeAll,
-        AllProcesses = false
+        AllProcesses = false,
+        PlanId = planId
     };
 
 file sealed class ControlledAutomationPolicy(
@@ -734,4 +1078,90 @@ file sealed class ControlledAutomationPolicy(
 file sealed class FixedExecutableVerifier(bool isTrusted) : IRobloxExecutableVerifier
 {
     public bool IsTrusted(string imagePath) => isTrusted;
+}
+
+file sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
+{
+    private DateTimeOffset _utcNow = utcNow;
+    private long _timestamp;
+
+    public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+    public override DateTimeOffset GetUtcNow() => _utcNow;
+
+    public override long GetTimestamp() => _timestamp;
+
+    public void MoveUtcBackward(TimeSpan amount) => _utcNow -= amount;
+
+    public void AdvanceTimestamp(TimeSpan amount) =>
+        _timestamp = checked(_timestamp + amount.Ticks);
+}
+
+file sealed class CandidateAutomationPolicy(
+    IReadOnlySet<int> allowedProcessIds,
+    int maximumProcessCount) : IHandleAutomationPolicy
+{
+    public string PolicyId => "candidate-cap-test-v1";
+
+    public int MaximumProcessCount => maximumProcessCount;
+
+    public AutomationRequestAuthorization AuthorizeRequest(
+        CloseHandlesRequest request) =>
+        new(
+            true,
+            1,
+            "candidate-cap-test",
+            string.Empty,
+            RobloxAutomationRecipe.ProcessName,
+            RobloxAutomationRecipe.HandleType,
+            RobloxAutomationRecipe.HandleAccess);
+
+    public AutomationProcessAuthorization AuthorizeProcess(
+        int processId,
+        AutomationRequestAuthorization request) =>
+        allowedProcessIds.Contains(processId)
+            ? new AutomationProcessAuthorization(
+                true,
+                new ProcessIdentity(
+                    processId,
+                    RobloxAutomationRecipe.ProcessName,
+                    $@"C:\Roblox\Versions\version-{processId}\RobloxPlayerBeta.exe",
+                    1,
+                    "S-1-5-21-1000",
+                    false,
+                    processId),
+                string.Empty)
+            : AutomationProcessAuthorization.Denied("policy_denied");
+}
+
+file sealed class ControlledExecutableTrustServices(string canonicalPath) :
+    IRobloxExecutableTrustServices
+{
+    public string CanonicalPath { get; set; } = canonicalPath;
+
+    public bool ThrowOnCanonicalPath { get; set; }
+
+    public bool ContainsReparsePointResult { get; set; }
+
+    public bool HasExpectedVersionIdentityResult { get; set; } = true;
+
+    public bool IsSignedAndTrustedResult { get; set; } = true;
+
+    public bool HasExpectedSignerResult { get; set; } = true;
+
+    public string GetCanonicalPath(SafeFileHandle handle) =>
+        ThrowOnCanonicalPath
+            ? throw new IOException("Controlled canonical-path failure.")
+            : CanonicalPath;
+
+    public bool ContainsReparsePoint(string root, string path) =>
+        ContainsReparsePointResult;
+
+    public bool HasExpectedVersionIdentity(string path) =>
+        HasExpectedVersionIdentityResult;
+
+    public bool IsSignedAndTrusted(string path, SafeFileHandle fileHandle) =>
+        IsSignedAndTrustedResult;
+
+    public bool HasExpectedSigner(string path) => HasExpectedSignerResult;
 }

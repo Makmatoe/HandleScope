@@ -98,26 +98,33 @@ Every close request must match all of these rules:
   and the match mode is `exact`.
 - Raw handle values and `closeAll: true` are rejected.
 - A name selector must use `allProcesses: true`; a positive PID selector must
-  use `allProcesses: false`. At most 32 name-selected candidates are accepted.
+  use `allProcesses: false`. At most 32 name-selected processes may pass every
+  owner, session, elevation, and executable-trust check; unauthorized
+  lookalikes do not consume that cap.
 
 The server accepts only the documented JSON properties with their exact casing,
 requires each boolean, rejects duplicate or unknown properties, and limits the
-request body to 8 KiB.
+request body to 8 KiB. The request content type must be exactly
+`application/json` (optional media-type parameters such as `charset` are
+allowed); lookalikes such as `application/jsonp` are rejected.
 
 ## Required dry-run sequence
 
 A close is a two-request operation:
 
 1. Send the exact allowed request with `dryRun: true`.
-2. Review the successful response.
-3. Within five seconds, send the identical request with only `dryRun` changed to
-   `false`.
+2. Review the successful response and retain its random 43-character base64url
+   `planId` only for this operation.
+3. Within five seconds, send the identical selector with `dryRun` changed to
+   `false` and the returned `planId` added at the top level.
 
-The successful dry run creates a single-use, in-memory plan. The execution
-request consumes it even if closure later fails, so it cannot be replayed. The
+Each successful dry run creates an independent single-use, in-memory plan, even
+when another client reviews the same selector. Expiry uses monotonic elapsed
+time rather than the Windows wall clock. The execution request consumes its
+specific plan even if closure later fails, so the ID cannot be replayed. The
 server revalidates the target owner, session, elevation state, executable,
-process creation time, and handle identity before closure. Concurrent
-operations are rejected.
+process creation time, handle identity, and access mask before closure.
+Concurrent operations are rejected.
 
 The included PowerShell client performs both requests automatically. Use
 `-DryRun` to stop after review:
@@ -160,20 +167,40 @@ shape, substituting the current positive Windows session number:
 }
 ```
 
-After a successful review, send the same JSON with only `dryRun` changed to
-`false`. A direct client must implement the discovery validation above with an
-HTTP stack configured to disable proxies, redirects, cookies, and automatic
-credential forwarding and to bound timeouts and response sizes. Do not use a
-convenience HTTP command whose proxy or redirect behavior has not been made
-explicitly fail-closed.
+After a successful review, send the same JSON with `dryRun` changed to `false`
+and the exact returned plan ID added, for example:
+
+```json
+{
+  "process": { "name": "RobloxPlayerBeta" },
+  "handle": {
+    "name": "\\Sessions\\1\\BaseNamedObjects\\ROBLOX_singletonEvent",
+    "match": "exact",
+    "type": "Event",
+    "access": "0x001F0003"
+  },
+  "dryRun": false,
+  "closeAll": false,
+  "allProcesses": true,
+  "planId": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}
+```
+
+Do not include `planId` in a dry-run request, and never reuse or log it. A direct
+client must implement the discovery validation above with an HTTP stack
+configured to disable proxies, redirects, cookies, and automatic credential
+forwarding and to bound timeouts and response sizes. Do not use a convenience
+HTTP command whose proxy or redirect behavior has not been made explicitly
+fail-closed.
 
 ## Responses
 
 A successful operation reports the policy ID, whether it was a dry run, process
 and match counts, redacted match records, closures, failures, and skipped
-processes. Match records replace the full session-specific path with the literal
-`ROBLOX_singletonEvent`; raw handle values, kernel object addresses, and native
-names are not returned by the API.
+processes. A successful dry run also reports its `planId`; execution and
+unsuccessful reviews do not issue one. Match records replace the full
+session-specific path with the literal `ROBLOX_singletonEvent`; raw handle
+values, kernel object addresses, and native names are not returned by the API.
 
 Important statuses include:
 
@@ -186,7 +213,8 @@ Important statuses include:
 - `403`: the browser-origin check or compiled automation policy denied the
   request;
 - `404`: no approved process or handle matched;
-- `409`: too many candidates or no current dry-run plan;
+- `409`: too many authorized targets, or the supplied plan is absent, expired,
+  mismatched, or already consumed;
 - `429`: another operation is in progress.
 
 Errors use a short machine-readable shape such as `{"error":"policy_denied"}`

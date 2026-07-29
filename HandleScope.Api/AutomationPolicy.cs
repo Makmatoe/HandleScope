@@ -82,6 +82,9 @@ public sealed class RobloxSingletonAutomationPolicy : IHandleAutomationPolicy
         if (request.Process is null ||
             request.Handle is null ||
             request.DryRun is null ||
+            (request.DryRun == true && request.PlanId is not null) ||
+            (request.DryRun == false &&
+             !DryRunPlanStore.IsCanonicalPlanId(request.PlanId)) ||
             request.CloseAll ||
             !string.IsNullOrEmpty(request.Handle.Handle) ||
             !string.Equals(request.Handle.Match, "exact", StringComparison.OrdinalIgnoreCase) ||

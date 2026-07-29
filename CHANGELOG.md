@@ -6,6 +6,23 @@ Notable user-visible and security-relevant changes are documented here.
 
 - No changes yet.
 
+## 0.1.3 - 2026-07-29
+
+- Pinned desktop and API scans to one process instance from display through
+  closure, revalidated complete handle snapshots and access masks, and rejected
+  PID or handle reuse before destructive work.
+- Bound each successful API dry run to an independent random single-use plan ID
+  with monotonic expiry; tightened JSON media types, authorized-target caps, and
+  complete multi-process response reporting.
+- Made API startup preserve discovery state and fail closed around live or
+  uninspectable competing instances while safely replacing definitively stale
+  discovery; installer output now reports the observed autostart state.
+- Hardened release verification so downloaded draft bytes are compared before
+  semantic parsing and extracted files are never executed, and rejected release
+  input/output overlap in either direction.
+- Expanded dependency, download-guide, native race, API contract, trust-policy,
+  lifecycle, and release-pipeline regressions.
+
 ## 0.1.2 - 2026-07-21
 
 - The API installer now removes inherited Windows download markers only after

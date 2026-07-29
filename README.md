@@ -40,7 +40,8 @@ The local API is more restrictive. It accepts only the compiled
 the same user in the same session and the exact
 `\Sessions\<current-session>\BaseNamedObjects\ROBLOX_singletonEvent` event with
 access mask `0x001F0003`. Every close requires a successful dry run followed by
-an identical, single-use execution request within five seconds.
+an execution request with the identical selector and the dry run's random,
+single-use `planId` within five seconds.
 
 Windows does not expose an atomic compare-and-close operation, so a small race
 remains when a process rapidly recycles handles. Protected, elevated,

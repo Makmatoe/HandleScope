@@ -291,6 +291,228 @@ function Get-HandleScopeTaskIdentity {
     }
 }
 
+function Get-HandleScopeAutostartState {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]
+        [object]$Task,
+
+        [Parameter(Mandatory)]
+        [string]$ExpectedExecutable
+    )
+
+    if ($null -eq $Task) {
+        return 'Absent'
+    }
+
+    try {
+        $actionsProperty = $Task.PSObject.Properties['Actions']
+        $principalProperty = $Task.PSObject.Properties['Principal']
+        if ($null -eq $actionsProperty -or
+            $null -eq $principalProperty) {
+            return 'Unexpected'
+        }
+
+        $actions = @($actionsProperty.Value)
+        if ($actions.Count -ne 1) {
+            return 'Unexpected'
+        }
+
+        $executeProperty = $actions[0].PSObject.Properties['Execute']
+        $argumentsProperty = $actions[0].PSObject.Properties['Arguments']
+        $runLevelProperty =
+            $principalProperty.Value.PSObject.Properties['RunLevel']
+        if ($null -eq $executeProperty -or
+            $null -eq $runLevelProperty) {
+            return 'Unexpected'
+        }
+
+        $actualExecutable = [IO.Path]::GetFullPath(
+            [Environment]::ExpandEnvironmentVariables(
+                [string]$executeProperty.Value))
+        $expectedPath = [IO.Path]::GetFullPath($ExpectedExecutable)
+        $arguments = if ($null -eq $argumentsProperty) {
+            ''
+        }
+        else {
+            [string]$argumentsProperty.Value
+        }
+        if (-not $actualExecutable.Equals(
+                $expectedPath,
+                [StringComparison]::OrdinalIgnoreCase) -or
+            -not [string]::IsNullOrEmpty($arguments) -or
+            [string]$runLevelProperty.Value -cne 'Limited') {
+            return 'Unexpected'
+        }
+
+        $stateProperty = $Task.PSObject.Properties['State']
+        if ($null -ne $stateProperty -and
+            [string]$stateProperty.Value -ceq 'Disabled') {
+            return 'Disabled'
+        }
+
+        $settingsProperty = $Task.PSObject.Properties['Settings']
+        if ($null -ne $settingsProperty -and
+            $null -ne $settingsProperty.Value) {
+            $enabledProperty =
+                $settingsProperty.Value.PSObject.Properties['Enabled']
+            if ($null -ne $enabledProperty -and
+                $enabledProperty.Value -is [bool] -and
+                -not $enabledProperty.Value) {
+                return 'Disabled'
+            }
+        }
+
+        return 'Enabled'
+    }
+    catch {
+        return 'Unexpected'
+    }
+}
+
+function Get-HandleScopeReferencedApiProcessState {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    try {
+        $safePath = Assert-HandleScopeLocalPath -Path $Path
+        if (-not (Test-Path -LiteralPath $safePath -PathType Leaf)) {
+            return 'Unknown'
+        }
+
+        $connectionFile = Get-Item `
+            -LiteralPath $safePath `
+            -Force `
+            -ErrorAction Stop
+        Assert-HandleScopeFileSystemItemNotLink -Item $connectionFile
+        try {
+            $document = [IO.File]::ReadAllText($safePath) |
+                ConvertFrom-Json
+        }
+        catch {
+            # A malformed document cannot reliably identify a process. The
+            # installed-executable scan is still required before startup.
+            return 'None'
+        }
+
+        $processIdProperty = $document.PSObject.Properties['processId']
+        $processId = 0
+        if ($null -eq $processIdProperty -or
+            -not [int]::TryParse(
+                [string]$processIdProperty.Value,
+                [ref]$processId) -or
+            $processId -le 0) {
+            return 'None'
+        }
+
+        $process = Get-Process `
+            -Id $processId `
+            -ErrorAction SilentlyContinue
+        if ($null -eq $process) {
+            return 'None'
+        }
+
+        if ([string]::Equals(
+                [string]$process.ProcessName,
+                'HandleScope.Api',
+                [StringComparison]::OrdinalIgnoreCase)) {
+            return 'Running'
+        }
+
+        # The PID was reused by a different executable, so it is not the
+        # process represented by the discovery document.
+        return 'None'
+    }
+    catch {
+        return 'Unknown'
+    }
+}
+
+function Get-HandleScopeInstalledApiProcessState {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ExecutablePath
+    )
+
+    try {
+        $expectedPath = [IO.Path]::GetFullPath($ExecutablePath)
+        $processes = @(Get-Process -ErrorAction Stop |
+            Where-Object {
+                [string]::Equals(
+                    [string]$_.ProcessName,
+                    'HandleScope.Api',
+                    [StringComparison]::OrdinalIgnoreCase)
+            })
+    }
+    catch {
+        return 'Unknown'
+    }
+
+    $inspectionWasIncomplete = $false
+    foreach ($process in $processes) {
+        try {
+            $processPath = [string]$process.Path
+            if ([string]::IsNullOrWhiteSpace($processPath)) {
+                $inspectionWasIncomplete = $true
+                continue
+            }
+
+            $actualPath = [IO.Path]::GetFullPath($processPath)
+            if ($actualPath.Equals(
+                    $expectedPath,
+                    [StringComparison]::OrdinalIgnoreCase)) {
+                return 'Running'
+            }
+        }
+        catch {
+            $inspectionWasIncomplete = $true
+        }
+    }
+
+    if ($inspectionWasIncomplete) {
+        return 'Unknown'
+    }
+
+    return 'NotRunning'
+}
+
+function Resolve-HandleScopeApiStartupDisposition {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('Missing', 'Valid', 'Invalid')]
+        [string]$ConnectionState,
+
+        [Parameter(Mandatory)]
+        [bool]$HealthReady,
+
+        [Parameter(Mandatory)]
+        [ValidateSet('None', 'Running', 'Unknown')]
+        [string]$ReferencedProcessState,
+
+        [Parameter(Mandatory)]
+        [ValidateSet('NotRunning', 'Running', 'Unknown')]
+        [string]$InstalledProcessState
+    )
+
+    if ($ConnectionState -ceq 'Valid') {
+        if ($HealthReady) {
+            return 'Ready'
+        }
+    }
+
+    if ($ReferencedProcessState -cne 'None' -or
+        $InstalledProcessState -cne 'NotRunning') {
+        return 'Blocked'
+    }
+
+    return 'Start'
+}
+
 function Get-HandleScopeConnection {
     [CmdletBinding()]
     param(

@@ -22,7 +22,9 @@ compiled singleton-event policy. Its HTTP responses redact raw handle values,
 kernel object addresses, native object names, and the session-specific event
 path; the returned name is the literal `ROBLOX_singletonEvent`. Process IDs,
 counts, access/type data, and short error codes can be returned to the
-authenticated local client.
+authenticated local client. A successful dry run also returns a random,
+single-use plan ID. Plans remain only in API memory for at most five seconds;
+their IDs and request bodies are not written to the lifecycle log.
 
 ## Files and local persistence
 

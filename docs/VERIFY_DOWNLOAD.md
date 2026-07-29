@@ -16,11 +16,34 @@ release before removing its download marker or running any file.
 
 ## 1. Verify GitHub provenance
 
-With the GitHub CLI installed, verify the downloaded ZIP against this public
-repository's build attestation:
+With the GitHub CLI installed, first derive the release identity from the
+single ZIP in the empty download directory. The filename must match the exact
+HandleScope release format:
 
 ```powershell
-gh attestation verify .\HandleScope-0.1.1-win-x64.zip `
+$zipCandidates = @(Get-ChildItem -File -Filter 'HandleScope-*-win-x64.zip')
+if ($zipCandidates.Count -ne 1) {
+  throw 'Expected exactly one HandleScope win-x64 ZIP in this directory.'
+}
+$zip = $zipCandidates[0]
+if ($zip.Name -cnotmatch '^HandleScope-(?<version>\d+\.\d+\.\d+)-win-x64\.zip$') {
+  throw "Unexpected HandleScope ZIP name: $($zip.Name)"
+}
+$version = $Matches.version
+$tag = "v$version"
+$assetBaseName = "HandleScope-$version-win-x64"
+$sbomName = "$assetBaseName.spdx.json"
+if (-not (Test-Path -LiteralPath $sbomName -PathType Leaf) -or
+    -not (Test-Path -LiteralPath 'SHA256SUMS.txt' -PathType Leaf)) {
+  throw 'The matching SBOM or SHA256SUMS.txt is missing.'
+}
+```
+
+Keep the same PowerShell session open for all following commands. Verify the
+downloaded ZIP against this public repository's build attestation:
+
+```powershell
+gh attestation verify $zip.FullName `
   --repo Makmatoe/HandleScope
 ```
 
@@ -32,7 +55,7 @@ For an immutable GitHub Release, recent GitHub CLI versions can additionally
 verify the published release-asset digest:
 
 ```powershell
-gh release verify-asset v0.1.1 .\HandleScope-0.1.1-win-x64.zip `
+gh release verify-asset $tag $zip.FullName `
   --repo Makmatoe/HandleScope
 ```
 
@@ -51,10 +74,10 @@ Get-Content .\SHA256SUMS.txt | ForEach-Object {
 }
 
 foreach ($name in @(
-  'HandleScope-0.1.1-win-x64.zip',
-  'HandleScope-0.1.1-win-x64.spdx.json')) {
+  $zip.Name,
+  $sbomName)) {
   if (-not $expected.ContainsKey($name)) { throw "Missing checksum entry: $name" }
-  $actual = (Get-FileHash ".\$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+  $actual = (Get-FileHash -LiteralPath $name -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($actual -cne $expected[$name]) { throw "SHA-256 mismatch: $name" }
 }
 ```
@@ -67,8 +90,8 @@ Only after successful provenance and checksum verification, remove the ZIP's
 Windows download marker and extract it to a new local directory:
 
 ```powershell
-Unblock-File .\HandleScope-0.1.1-win-x64.zip
-Expand-Archive .\HandleScope-0.1.1-win-x64.zip -DestinationPath .\HandleScope
+Unblock-File -LiteralPath $zip.FullName
+Expand-Archive -LiteralPath $zip.FullName -DestinationPath .\HandleScope
 ```
 
 Do not extract into a symbolic link, junction, cloud placeholder, or existing
@@ -76,7 +99,8 @@ application directory. Then validate the complete API inventory and its
 internal per-file hashes without installing anything:
 
 ```powershell
-& .\HandleScope\HandleScope-0.1.1-win-x64\api\Install-HandleScopeApi.ps1 `
+$installer = Join-Path .\HandleScope "$assetBaseName\api\Install-HandleScopeApi.ps1"
+& $installer `
   -VerifyOnly
 ```
 
