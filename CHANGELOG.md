@@ -6,6 +6,21 @@ Notable user-visible and security-relevant changes are documented here.
 
 - No changes yet.
 
+## 0.1.4 - 2026-08-02
+
+- Authorized a narrowly bounded SessionDock managed-setup path only after an
+  explicit version-specific confirmation discloses installation, immediate
+  startup, and limited per-user autostart.
+- Required that path to pin one immutable official release, verify the package,
+  checksum asset, safe archive layout, and complete internal inventory before
+  running the unmodified installer in verification and installation phases.
+- Required standard-user execution with process-scoped `RemoteSigned` only;
+  elevation, `Bypass`, `Unrestricted`, persisted policy changes, Group Policy
+  overrides, automatic integration opt-in, and silent lifecycle actions remain
+  forbidden.
+- Kept the API, compiled Roblox policy, executable trust checks, installation
+  scripts, and runtime behavior unchanged.
+
 ## 0.1.3 - 2026-07-29
 
 - Pinned desktop and API scans to one process instance from display through

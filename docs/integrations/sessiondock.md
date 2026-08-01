@@ -3,7 +3,7 @@
 [SessionDock](https://github.com/Makmatoe/SessionDock) is an optional,
 standard-user client of HandleScope local API v1. The applications remain
 separate repositories, downloads, installs, processes, and release channels.
-HandleScope is not bundled with SessionDock.
+HandleScope is not bundled inside SessionDock.
 
 The supported integration is a narrow **post-launch** action. After Roblox has
 started successfully, SessionDock must receive a positive launched process ID,
@@ -17,17 +17,53 @@ a general process-control extension point.
 ## User-control boundary
 
 SessionDock may call HandleScope only after the user explicitly enables the
-integration and an already-running API has published:
+integration and a running API has published:
 
 ```text
 %LOCALAPPDATA%\HandleScope\connection.json
 ```
 
 The API must therefore be running before the Roblox launch if the post-launch
-action is expected to run. SessionDock must not bundle, download, install,
-update, uninstall, elevate, or silently start HandleScope. Users install and
-start HandleScope separately and may choose its optional limited per-user
-autostart task.
+action is expected to run. HandleScope remains optional and SessionDock must
+never embed its files, elevate it, uninstall it, downgrade it, silently change
+it, or make a Roblox launch depend on it.
+
+Starting with HandleScope v0.1.4, a compatible release published from the
+canonical `Makmatoe/SessionDock` repository may offer a managed setup only when
+all of these controls are present:
+
+1. A dedicated user action opens a confirmation that names the exact pinned
+   HandleScope version and explains that continuing will download, install or
+   replace the per-user API, start it immediately, and enable its limited
+   per-user autostart task.
+2. SessionDock pins one stable immutable `Makmatoe/HandleScope` release and the
+   exact canonical Windows x64 package and checksum assets. It must reject a
+   different version, repository, asset name, byte length, SHA-256 digest,
+   checksum entry, or non-approved HTTPS download redirect. A missing
+   `Content-Length` is acceptable only when the bounded stream ends at the exact
+   pinned length and hash; a present contradictory length must be rejected.
+3. Before any extracted file runs, SessionDock must enforce a bounded safe ZIP
+   layout, cap entry count and total expanded bytes, reject filesystem links and
+   unexpected entries, and verify the complete internal `CONTENTS.sha256`
+   inventory. It must then run only the release's unmodified
+   `api\Install-HandleScopeApi.ps1`, once with `-VerifyOnly` before the
+   installation phase.
+4. Both phases run as the current standard user. SessionDock may set
+   `-ExecutionPolicy RemoteSigned` only for each verified child process so the
+   local script can run when the effective default is `Restricted`. It must
+   never use `Bypass` or `Unrestricted`, change a saved execution policy,
+   override Group Policy, or request elevation.
+5. The confirmed installation phase may pass `-StartNow -EnableAutostart` as
+   disclosed. It must not pass `-EnableSessionDock`; the local SessionDock
+   opt-in remains a separate explicit action after installation.
+6. Every different HandleScope release requires a new reviewed pin and a new
+   version-specific confirmation. SessionDock must not use a mutable latest
+   download, silently update or retry an installation, or run other HandleScope
+   start, stop, update, uninstall, or task-management commands.
+
+The same confirmed flow may replace an older supported per-user installation
+through HandleScope's own fail-closed installer. A user may always choose the
+manual verified installation path instead.
 
 SessionDock remains usable when HandleScope is absent, stopped, incompatible,
 busy, or denies a request. Those conditions skip or fail only the optional

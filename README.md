@@ -125,6 +125,13 @@ application, copy a token, or modify account data, and it refuses to replace a
 non-minimal canonical setting unless the user explicitly re-runs it with
 `-Force`.
 
+Starting with HandleScope v0.1.4, a compatible SessionDock release may also
+offer a managed setup after a version-specific confirmation. That path must pin
+and verify one immutable official release, run only as the standard user, and
+clearly disclose immediate API startup and limited per-user autostart. It never
+bundles HandleScope or enables the integration automatically. See the
+[complete managed-setup boundary](docs/integrations/sessiondock.md#user-control-boundary).
+
 ## Repository layout
 
 | Path | Purpose |

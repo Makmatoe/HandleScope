@@ -82,9 +82,12 @@ Released HandleScope binaries do not check for updates or contact GitHub,
 Roblox, Microsoft, the maintainer, or any other internet service. API traffic
 is limited to `127.0.0.1`, and the API's Roblox executable trust check uses
 Windows' cache-only verification mode. Downloading a release, visiting GitHub,
-building from source, and artifact-attestation or release-integrity checks
-performed by GitHub CLI are separate actions that may contact their respective
-services.
+building from source, a user-confirmed SessionDock managed download, and
+artifact-attestation or release-integrity checks performed by GitHub CLI are
+separate actions that may contact their respective services. The managed path
+is required to contact only the canonical GitHub release endpoints for its
+exact pinned package and checksum assets and must not send HandleScope runtime
+credentials or process data.
 
 ## Sharing diagnostics and security reports
 

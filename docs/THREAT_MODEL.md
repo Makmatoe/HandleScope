@@ -37,7 +37,10 @@ the identity or intent of another same-user process.
 ## Trust boundaries
 
 1. A user downloads a release from GitHub, verifies its repository-bound
-   attestation and checksums, then unblocks and extracts it locally.
+   attestation and checksums, then unblocks and extracts it locally. As a
+   separately reviewed alternative, SessionDock may download one exactly pinned
+   official release only after version-specific confirmation and must verify
+   its fixed external and internal identity before running the installer.
 2. The user drives the desktop UI, which crosses into Windows process and native
    handle APIs using that user's existing access token.
 3. A local client reads `%LOCALAPPDATA%\HandleScope\connection.json` and sends
@@ -82,6 +85,7 @@ signature whose organization is `Roblox Corporation`.
 | Concurrent destructive requests | A single-operation gate rejects overlap with `429` | Callers may retry and cause local denial of service |
 | Tampered connection or runtime directory | The runtime directory rejects reparse points and applies a protected current-user ACL; clients validate URL, token shape, API PID/name, version, and health policy | Same-user malware can still change same-user state |
 | Installer substitution or downgrade | Installer admits only the fixed nine-file API source set, executes no adjacent helper before checking the complete internal manifest, rechecks staged files, uses staged replacement, refuses linked source/install paths, and blocks downgrade by default | Internal hashes do not authenticate origin because a malicious bundle could replace both file and manifest; users must first verify the GitHub attestation and external ZIP checksum. An explicit `-AllowDowngrade` bypasses version ordering |
+| A managed SessionDock setup substitutes or silently runs HandleScope | The integration contract requires a dedicated version-specific confirmation, immutable canonical asset names, fixed lengths and SHA-256 hashes, matching checksums, bounded safe extraction, exact internal inventory verification, an initial `-VerifyOnly` phase, standard-user execution, and separate integration opt-in | SessionDock's release process and embedded pin become additional trusted inputs; a compromised same-user client can still invoke commands with that user's authority |
 | Scheduled-task persistence is widened | Autostart is opt-in, per-SID, interactive-logon only, and `RunLevel Limited`; install/uninstall validate the expected action and privilege level | The owning user can modify their own limited task |
 | Supply-chain substitution | Restore is locked; third-party package references are prohibited; workflow actions are pinned; release publication is environment-approved and fresh-only; exact catalogs, checksums, SPDX inventory, redownload verification, immutable releases, and GitHub attestations are required | GitHub, repository administration, Actions, and the maintainer's account remain trusted dependencies; the free release model provides no Windows publisher identity |
 | Sensitive data enters diagnostics | No telemetry exists; API logs contain only bounded lifecycle and generic failure data; HTTP errors omit exception details and raw native identifiers | Desktop screenshots and manually copied output can still expose local names or paths |

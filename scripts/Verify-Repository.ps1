@@ -39,6 +39,7 @@ $requiredPaths = @(
     'ReleaseNotes\0.1.1.md'
     'ReleaseNotes\0.1.2.md'
     'ReleaseNotes\0.1.3.md'
+    'ReleaseNotes\0.1.4.md'
     'scripts\Finalize-Release.ps1'
     'scripts\Publish-Release.ps1'
     'scripts\Test-PowerShellCompatibility.ps1'
@@ -537,6 +538,44 @@ if (Test-Path -LiteralPath $verificationGuidePath -PathType Leaf) {
                 [StringComparison]::Ordinal) -lt 0) {
             $failures.Add(
                 "Download verification guide is missing its version-neutral control: $requiredGuideControl")
+        }
+    }
+}
+
+$sessionDockContractPath = Join-Path `
+    $repositoryRoot `
+    'docs\integrations\sessiondock.md'
+if (Test-Path -LiteralPath $sessionDockContractPath -PathType Leaf) {
+    $sessionDockContract = [IO.File]::ReadAllText($sessionDockContractPath)
+    $requiredManagedSetupControls = @(
+        'Starting with HandleScope v0.1.4',
+        'canonical `Makmatoe/SessionDock` repository',
+        'dedicated user action opens a confirmation',
+        'continuing will download, install or',
+        'exact canonical Windows x64 package and checksum assets',
+        'byte length, SHA-256 digest',
+        'non-approved HTTPS download redirect',
+        '`Content-Length` is acceptable only when the bounded stream',
+        'present contradictory length must be rejected',
+        'cap entry count and total expanded bytes',
+        'complete internal `CONTENTS.sha256`',
+        'run only the release''s unmodified',
+        '`api\Install-HandleScopeApi.ps1`, once with `-VerifyOnly`',
+        '`-ExecutionPolicy RemoteSigned` only for each verified child process',
+        'never use `Bypass` or `Unrestricted`',
+        '`-StartNow -EnableAutostart` as',
+        'must not pass `-EnableSessionDock`',
+        'new reviewed pin and a new',
+        'version-specific confirmation',
+        'never embed its files, elevate it, uninstall it, downgrade it',
+        'silently update or retry an installation'
+    )
+    foreach ($control in $requiredManagedSetupControls) {
+        if ($sessionDockContract.IndexOf(
+                $control,
+                [StringComparison]::Ordinal) -lt 0) {
+            $failures.Add(
+                "SessionDock managed-setup contract is missing its reviewed control: $control")
         }
     }
 }
