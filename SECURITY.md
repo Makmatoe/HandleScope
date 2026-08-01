@@ -40,6 +40,16 @@ able to read the token and request the one allowed Roblox operation. Closing the
 allowed event may destabilize Roblox. Review the complete
 [`threat model`](docs/THREAT_MODEL.md) before integrating the API.
 
+HandleScope v0.1.4 also defines a constrained delivery boundary for compatible
+SessionDock releases. A managed setup is authorized only after a dedicated,
+version-specific user confirmation and exact verification of one immutable
+official package, its matching checksum asset, safe archive layout, and full
+internal inventory. It must run the unmodified installer as the standard user,
+verify before installing, disclose immediate startup and limited autostart, and
+leave the SessionDock opt-in separate. Elevation, silent lifecycle changes,
+mutable downloads, downgrades, `Bypass`, `Unrestricted`, saved policy changes,
+and Group Policy overrides remain outside the supported boundary.
+
 ## Reporting a vulnerability
 
 Do not disclose a suspected vulnerability in a public issue, pull request,

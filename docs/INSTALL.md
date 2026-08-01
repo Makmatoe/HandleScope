@@ -105,9 +105,18 @@ Roblox singleton policy and client contract.
 ## Connect SessionDock
 
 [SessionDock](https://github.com/Makmatoe/SessionDock) remains a separate
-download and never installs or starts HandleScope itself. After the API is
-installed, `-EnableSessionDock` on the install command is the easiest explicit
-opt-in. To enable it separately later, run:
+download and HandleScope is never bundled inside it. Starting with HandleScope
+v0.1.4, a compatible SessionDock release may offer a user-confirmed managed
+setup that pins and independently verifies this exact official release before
+running the unmodified installer as the standard user. Its confirmation must
+disclose that setup starts the API and enables limited per-user autostart. It
+must not enable the integration automatically, elevate, use `Bypass` or
+`Unrestricted`, change saved PowerShell policy, override Group Policy, or
+perform silent lifecycle actions. The exact required client controls are in
+[`integrations/sessiondock.md`](integrations/sessiondock.md).
+
+For manual setup, `-EnableSessionDock` on the install command is the easiest
+explicit opt-in. To enable it separately later, run:
 
 ```powershell
 & "$env:LOCALAPPDATA\Programs\HandleScope\Api\Enable-SessionDockIntegration.ps1"
@@ -193,6 +202,8 @@ GitHub-attested release assets. The packaged installer accepts only a complete
 finalized bundle with its matching internal manifest. Do not regenerate a
 manifest to make an unreviewed or partial bundle look official.
 
-SessionDock remains a separate optional client. It must not bundle, download,
-install, elevate, silently start, update, or uninstall HandleScope. See
+SessionDock remains a separate optional client. It must not bundle HandleScope
+or perform any download, install, startup, autostart, update, or other lifecycle
+action outside the strictly confirmed and verified managed-setup boundary. It
+must never elevate or uninstall HandleScope. See
 [`integrations/sessiondock.md`](integrations/sessiondock.md).

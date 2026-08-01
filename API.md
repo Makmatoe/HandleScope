@@ -234,9 +234,12 @@ token from other processes running as the same user.
 
 ## SessionDock integration
 
-SessionDock must treat HandleScope as a separately installed, optional local
-dependency. For each launch operation it must discover the current connection,
-require health policy `roblox-singleton-event-v1`, construct only the exact
+SessionDock must treat HandleScope as a separately released, optional local
+dependency. A compatible SessionDock release may offer the strictly confirmed,
+version-pinned managed setup defined in the complete client boundary below; it
+must not bundle HandleScope or silently install, update, start, or configure it.
+For each launch operation it must discover the current connection, require
+health policy `roblox-singleton-event-v1`, construct only the exact
 session-specific recipe above, perform a dry run, and use the resulting plan at
 most once. It must remain usable when HandleScope is absent or denies the
 request.

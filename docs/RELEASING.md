@@ -63,6 +63,25 @@ reviewer. The environment requires no variables and no secrets.
 7. Review and approve the pending `release` environment deployment. Do not
    approve if the tag, commit, workflow, or generated inventory is unexpected.
 
+### SessionDock managed-setup contract
+
+HandleScope v0.1.4 introduces an explicitly reviewed client delivery boundary;
+it does not grant a floating authorization to future HandleScope or SessionDock
+versions. Before a compatible SessionDock release changes its pin, review its
+confirmation, canonical asset URLs, fixed sizes and SHA-256 hashes, redirect
+allowlist, streamed bounds, checksum parsing, ZIP and internal inventory
+validation, installer arguments, PowerShell policy scope, standard-user token,
+cancellation behavior, and separate integration opt-in against
+[`integrations/sessiondock.md`](integrations/sessiondock.md).
+
+Record the new HandleScope tag, protected-main source commit, ZIP and checksum
+asset names, lengths, and SHA-256 hashes, extracted API executable length and
+SHA-256 hash, SBOM identity, release immutability, and successful artifact
+attestation verification. A SessionDock pin may be updated only after the new
+HandleScope release is public and these values have been independently checked.
+Never revise the contract of an existing immutable release to authorize a
+client retroactively.
+
 No cryptographic tag key is required. Repository and tag rules determine who
 may create release tags, while the GitHub attestation binds each asset to the
 tag-triggered workflow and source repository.
