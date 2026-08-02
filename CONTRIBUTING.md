@@ -44,6 +44,11 @@ For documentation-only work, the minimum check is:
 - Include validation output and any Windows-version limitations.
 - Describe whether SessionDock's included source must be resynchronized and
   name the upstream tag/commit that will be pinned.
+- Preserve SessionDock's independent source, standalone runtime-version, and API
+  selectors. Automatic/Keep installed/exact reviewed requirements, stale-pin
+  recovery, explicit standalone-only catalog refresh, and local-only panel
+  opening are backwards-compatibility and security contracts, not installer or
+  lifecycle features.
 - Keep generated output out of the commit.
 - Release changes must remain fail-closed: preserve locked restore, pinned
   actions, protected publication, exact artifact inventories, version/tag

@@ -107,6 +107,17 @@ authorization data only and cannot define executable behavior. Never revise the
 contract of an existing immutable release retroactively or restore SessionDock's
 removed in-app downloader/installer.
 
+SessionDock's standalone runtime-version selector must continue to expose
+Automatic, Keep installed, and exact signed-catalog-reviewed compatible
+versions independently from its API selector. A stale exact pin must remain
+visible and recoverable through Automatic, Keep installed, or another reviewed
+exact version. Opening the integration panel remains local-only. The
+standalone-only **Refresh reviewed versions** action may fetch only the canonical
+signed catalog, must enforce signature, product/repository/key identity,
+validity, compatibility, and rollback protection, and must preserve the selected
+runtime source, standalone version, and API preference. It must never download,
+install, start, stop, update, downgrade, reconfigure, or uninstall a runtime.
+
 No cryptographic tag key is required. Repository and tag rules determine who
 may create release tags, while the GitHub attestation binds each asset to the
 tag-triggered workflow and source repository.

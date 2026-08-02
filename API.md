@@ -327,6 +327,19 @@ SessionDock never downloads, installs, starts, stops, updates, downgrades,
 reconfigures, or uninstalls that external application. The standalone API must
 already be running.
 
+For that advanced source, SessionDock's separate **Standalone runtime version**
+selector offers **Automatic**, **Keep the installed version**, and exact
+signed-catalog-reviewed compatible versions. These are authorization
+requirements for the already running runtime, not package or lifecycle
+commands. A stale exact pin remains visible and can be recovered by choosing
+Automatic, Keep the installed version, or another reviewed exact version.
+
+Opening the integration panel remains local-only. The standalone-only
+**Refresh reviewed versions** action explicitly fetches and verifies the latest
+signed compatibility catalog, preserves the selected runtime source,
+standalone version, and API preference, and never downloads, installs, starts,
+stops, updates, downgrades, reconfigures, or uninstalls a runtime.
+
 For each launch operation, both sources require policy
 `roblox-singleton-event-v1`, negotiate only the compiled/authenticated v1 or v2
 adapter selected by Automatic/`v2`/`v1`, construct only the exact

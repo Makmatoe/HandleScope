@@ -24,7 +24,25 @@ integration. SessionDock 3.0 exposes these independent choices:
 | --- | --- | --- |
 | Runtime source | **Included with SessionDock (recommended)** | HandleScope 0.3.0 is compiled into `SessionDock.exe`. SessionDock starts one non-elevated, parent-owned child and supplies bootstrap data through an inherited anonymous pipe. |
 | Runtime source | **Standalone HandleScope (advanced)** | SessionDock connects to an already installed/running standalone API through `%LOCALAPPDATA%\HandleScope\connection.json` and never mutates its lifecycle. |
+| Standalone runtime version | **Automatic** | Accepts any installed runtime authorized by the signed catalog and compatible with this SessionDock version. |
+| Standalone runtime version | **Keep the installed version** | Accepts the installed reviewed compatible runtime without requesting a replacement or lifecycle action. |
+| Standalone runtime version | Exact reviewed version | Requires the already running runtime to match that exact signed-catalog-reviewed compatible version; it never fetches or installs it. |
 | API | **Automatic**, `v2`, or `v1` | Chooses only an operation adapter compiled into SessionDock; it never selects or downloads a package. |
+
+The standalone runtime-version selector is shown only for the advanced source.
+A stale exact pin remains visible even when it is absent from the current
+reviewed list or does not match the running runtime. The user can recover by
+selecting **Automatic**, **Keep the installed version**, or another reviewed
+exact version without changing any installed software.
+
+Opening the integration panel remains local-only. **Refresh reviewed versions**
+is a standalone-only, explicit network action. It fetches the latest catalog
+from SessionDock's canonical GitHub release URL and accepts it only after the
+existing signature, product/repository/key identity, validity-window,
+compatibility, and rollback-floor checks pass. Refresh preserves the selected
+runtime source, standalone version, and API preference. It never downloads,
+installs, starts, stops, updates, downgrades, reconfigures, or uninstalls either
+runtime.
 
 Included mode must satisfy every control below:
 

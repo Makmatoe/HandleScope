@@ -71,6 +71,17 @@ SessionDock clients and reviewed advanced-standalone identities; it cannot
 define executable paths, arguments, endpoints, or API behavior, and the 3.0
 included flow does not execute from it.
 
+SessionDock 3.0's standalone runtime selector offers Automatic, Keep installed,
+and exact signed-catalog-reviewed versions as authorization requirements only.
+A stale exact pin remains visible and recoverable instead of being silently
+rewritten. Opening the integration panel remains local-only. Only the explicit,
+standalone-only **Refresh reviewed versions** action may fetch a catalog; it
+must verify signature, product/repository/key identity, validity,
+compatibility, and rollback protection while preserving the selected runtime
+source, standalone version, and API preference. It cannot download an
+executable or install, start, stop, update, downgrade, reconfigure, or uninstall
+either runtime.
+
 Elevation, silent standalone lifecycle changes, mutable unauthenticated
 downloads, downgrades, `Bypass`, `Unrestricted`, saved policy changes, and Group
 Policy overrides remain outside the supported boundary.

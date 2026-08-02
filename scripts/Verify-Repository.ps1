@@ -772,6 +772,15 @@ if (Test-Path -LiteralPath $sessionDockContractPath -PathType Leaf) {
         'HandleScope 0.3.0 engine inside `SessionDock.exe`',
         '**Included with SessionDock (recommended)**',
         '**Standalone HandleScope (advanced)**',
+        'Standalone runtime version',
+        '**Keep the installed version**',
+        'signed-catalog-reviewed compatible version',
+        'A stale exact pin remains visible',
+        'Opening the integration panel remains local-only.',
+        '**Refresh reviewed versions**',
+        'standalone-only, explicit network action',
+        'product/repository/key identity',
+        'runtime source, standalone version, and API preference',
         'starts one non-elevated, parent-owned child',
         'inherited anonymous pipe',
         '`SessionDock.HandleScope/handlescope-upstream.json`',
@@ -805,6 +814,70 @@ if (Test-Path -LiteralPath $sessionDockContractPath -PathType Leaf) {
                 [StringComparison]::Ordinal) -lt 0) {
             $failures.Add(
                 "SessionDock bundled-integration contract is missing its reviewed control: $control")
+        }
+    }
+}
+
+$sessionDockSelectorDocumentation = @{
+    'README.md' = @(
+        '**Standalone runtime version**',
+        '**Keep the installed version**',
+        '**Refresh reviewed versions**',
+        'Opening the integration panel is local-only.',
+        'A stale exact pin remains visible'
+    )
+    'API.md' = @(
+        '**Standalone runtime version**',
+        '**Refresh reviewed versions**',
+        'Opening the integration panel remains local-only.',
+        'A stale exact pin remains visible'
+    )
+    'docs\INSTALL.md' = @(
+        '**Standalone runtime version**',
+        '**Refresh reviewed versions**',
+        'Opening the integration panel remains local-only.',
+        'A stale exact pin remains visible'
+    )
+    'PRIVACY.md' = @(
+        'standalone Automatic/Keep installed/exact-version requirement',
+        '**Refresh reviewed versions**',
+        'A stale exact pin'
+    )
+    'SECURITY.md' = @(
+        'Automatic, Keep installed,',
+        '**Refresh reviewed versions**',
+        'A stale exact pin remains visible'
+    )
+    'docs\THREAT_MODEL.md' = @(
+        'Automatic, Keep installed,',
+        '**Refresh reviewed versions**',
+        'stale exact pin remains visible/recoverable'
+    )
+    'docs\RELEASING.md' = @(
+        'Automatic, Keep installed,',
+        '**Refresh reviewed versions**',
+        'A stale exact pin must remain'
+    )
+    'CONTRIBUTING.md' = @(
+        'Automatic/Keep installed/exact reviewed requirements',
+        'stale-pin',
+        'standalone-only catalog refresh',
+        'local-only panel'
+    )
+}
+foreach ($documentationEntry in $sessionDockSelectorDocumentation.GetEnumerator()) {
+    $documentationPath = Join-Path $repositoryRoot $documentationEntry.Key
+    if (-not (Test-Path -LiteralPath $documentationPath -PathType Leaf)) {
+        continue
+    }
+
+    $documentation = [IO.File]::ReadAllText($documentationPath)
+    foreach ($control in $documentationEntry.Value) {
+        if ($documentation.IndexOf(
+                $control,
+                [StringComparison]::Ordinal) -lt 0) {
+            $failures.Add(
+                "SessionDock selector documentation is missing '$control' in $($documentationEntry.Key).")
         }
     }
 }
