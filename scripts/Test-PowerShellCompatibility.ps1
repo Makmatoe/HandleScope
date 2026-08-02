@@ -201,274 +201,178 @@ foreach ($scenario in $autostartScenarios) {
         -Actual $actualAutostartState
 }
 
-$startScriptPath = Join-Path `
-    $repositoryRoot `
-    'HandleScope.Api\Scripts\Start-HandleScopeApi.ps1'
-$startScriptSource = [IO.File]::ReadAllText($startScriptPath)
-if ($startScriptSource.IndexOf(
-        'Resolve-HandleScopeApiStartupDisposition',
-        [StringComparison]::Ordinal) -lt 0 -or
-    $startScriptSource.IndexOf(
-        'No connection data was removed.',
-        [StringComparison]::Ordinal) -lt 0 -or
-    $startScriptSource.IndexOf(
-        'Remove-HandleScopeLocalItem',
-        [StringComparison]::Ordinal) -ge 0) {
-    throw 'The API start script no longer preserves discovery data and uses the fail-closed lifecycle decision.'
-}
-
-$installerScriptPath = Join-Path `
-    $repositoryRoot `
-    'HandleScope.Api\Scripts\Install-HandleScopeApi.ps1'
-$installerScriptSource = [IO.File]::ReadAllText($installerScriptPath)
-if ([regex]::Matches(
-        $installerScriptSource,
-        'Get-HandleScopeAutostartState').Count -lt 2 -or
-    $installerScriptSource.IndexOf(
-        'autostart remains enabled.',
-        [StringComparison]::Ordinal) -lt 0) {
-    throw 'The installer no longer validates and reports the preserved autostart state.'
-}
-
-$minimal = '{"enabled":true}' | ConvertFrom-Json
-if (-not (Test-HandleScopeMinimalSessionDockSetting -Setting $minimal)) {
-    throw 'The minimal enabled SessionDock setting was not recognized.'
-}
-
-$disabled = '{"enabled":false}' | ConvertFrom-Json
-if (Test-HandleScopeMinimalSessionDockSetting -Setting $disabled) {
-    throw 'A disabled SessionDock setting was incorrectly accepted.'
-}
-
-$extended = '{"enabled":true,"unexpected":true}' | ConvertFrom-Json
-if (Test-HandleScopeMinimalSessionDockSetting -Setting $extended) {
-    throw 'An extended SessionDock setting was incorrectly accepted.'
-}
-
-if (Test-HandleScopeMinimalSessionDockSetting -Setting $null) {
-    throw 'A missing SessionDock setting was incorrectly accepted.'
-}
-
-function Assert-MinimalSessionDockSettingFile {
+function Assert-NativeCompatibilityWrapper {
     param(
         [Parameter(Mandatory)]
-        [string]$Path
+        [string]$RelativePath,
+
+        [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
+        [string[]]$ExpectedParameters,
+
+        [Parameter(Mandatory)]
+        [string[]]$RequiredMarkers
     )
 
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        throw "Expected SessionDock setting was not created: $Path"
+    $path = Join-Path $repositoryRoot $RelativePath
+    $source = [IO.File]::ReadAllText($path)
+    $tokens = $null
+    $parseErrors = $null
+    $ast = [Management.Automation.Language.Parser]::ParseFile(
+        $path,
+        [ref]$tokens,
+        [ref]$parseErrors)
+    if ($parseErrors.Count -ne 0) {
+        throw "Compatibility wrapper has a parse error: $RelativePath"
     }
-    $setting = [IO.File]::ReadAllText($Path) | ConvertFrom-Json
-    if (-not (Test-HandleScopeMinimalSessionDockSetting -Setting $setting)) {
-        throw "SessionDock setting was not the minimal enabled opt-in: $Path"
+
+    $actualParameters = @(
+        $ast.ParamBlock.Parameters |
+            ForEach-Object { $_.Name.VariablePath.UserPath }
+    )
+    $parameterDifference = @(
+        Compare-Object `
+            -ReferenceObject $ExpectedParameters `
+            -DifferenceObject $actualParameters `
+            -CaseSensitive
+    )
+    if ($parameterDifference.Count -ne 0 -or
+        $ExpectedParameters.Count -ne $actualParameters.Count) {
+        throw "Compatibility wrapper parameter contract changed: $RelativePath"
+    }
+
+    foreach ($requiredMarker in @(
+            "'HandleScope.Setup.exe'",
+            'HandleScope.Setup.exe was not found next to the compatibility wrapper.',
+            '$LASTEXITCODE -ne 0',
+            'HandleScope.Setup.exe failed with exit code') + $RequiredMarkers) {
+        if ($source.IndexOf(
+                $requiredMarker,
+                [StringComparison]::Ordinal) -lt 0) {
+            throw "Compatibility wrapper is missing '$requiredMarker': $RelativePath"
+        }
+    }
+
+    $invocations = @(
+        $ast.FindAll(
+            {
+                param($node)
+                $node -is [Management.Automation.Language.CommandAst] -and
+                $node.InvocationOperator -eq
+                    [Management.Automation.Language.TokenKind]::Ampersand
+            },
+            $true)
+    )
+    if ($invocations.Count -ne 1 -or
+        $invocations[0].Extent.Text -cnotmatch '^&\s+\$setup(?:\s|$)') {
+        throw "Compatibility wrapper must invoke only the adjacent native setup executable: $RelativePath"
+    }
+
+    $dotInvocations = @(
+        $ast.FindAll(
+            {
+                param($node)
+                $node -is [Management.Automation.Language.CommandAst] -and
+                $node.InvocationOperator -eq
+                    [Management.Automation.Language.TokenKind]::Dot
+            },
+            $true)
+    )
+    $forbiddenCommandNames = @(
+        'cmd',
+        'Copy-Item',
+        'Invoke-Expression',
+        'Invoke-RestMethod',
+        'Invoke-WebRequest',
+        'Move-Item',
+        'powershell',
+        'pwsh',
+        'Register-ScheduledTask',
+        'Remove-Item',
+        'Set-ExecutionPolicy',
+        'Start-Process',
+        'Stop-Process',
+        'Unregister-ScheduledTask'
+    )
+    $forbiddenCommands = @(
+        $ast.FindAll(
+            {
+                param($node)
+                if ($node -isnot [Management.Automation.Language.CommandAst]) {
+                    return $false
+                }
+                $commandName = $node.GetCommandName()
+                return -not [string]::IsNullOrWhiteSpace($commandName) -and
+                    ($commandName -in $forbiddenCommandNames -or
+                     $commandName -match '(?i)\.(?:ps1|psm1|bat|cmd|com)$')
+            },
+            $true)
+    )
+    if ($dotInvocations.Count -ne 0 -or
+        $forbiddenCommands.Count -ne 0 -or
+        $source.IndexOf(
+            'HandleScope.ScriptCommon.ps1',
+            [StringComparison]::Ordinal) -ge 0 -or
+        $source -match '(?i)-ExecutionPolicy|\bBypass\b|\bUnrestricted\b') {
+        throw "Compatibility wrapper gained lifecycle, shell, policy, or network logic: $RelativePath"
     }
 }
 
-$integrationTestRoot = Join-Path `
-    ([IO.Path]::GetTempPath()) `
-    ('HandleScope-SessionDock-' + [Guid]::NewGuid().ToString('N'))
-$isolatedScriptRoot = Join-Path $integrationTestRoot 'scripts'
-$helperSource = Join-Path `
-    $repositoryRoot `
-    'HandleScope.Api\Scripts\Enable-SessionDockIntegration.ps1'
-$helperUnderTest = Join-Path `
-    $isolatedScriptRoot `
-    'Enable-SessionDockIntegration.ps1'
-$mockCommonPath = Join-Path `
-    $isolatedScriptRoot `
-    'HandleScope.ScriptCommon.ps1'
-$previousTestRoot = $env:HANDLESCOPE_INTEGRATION_TEST_ROOT
-
-try {
-    New-Item -ItemType Directory -Path $isolatedScriptRoot -Force | Out-Null
-    Copy-Item -LiteralPath $helperSource -Destination $helperUnderTest
-    $mockCommon = @'
-Set-StrictMode -Version Latest
-
-function Test-HandleScopeAdministratorToken { return $false }
-
-function Test-HandleScopeMinimalSessionDockSetting {
-    param([AllowNull()][object]$Setting)
-    if ($null -eq $Setting) { return $false }
-    $propertyNames = @($Setting.PSObject.Properties.Name)
-    return $propertyNames.Length -eq 1 -and
-        $propertyNames[0] -ceq 'enabled' -and
-        $Setting.enabled -is [bool] -and
-        $Setting.enabled -eq $true
+$wrapperCases = @(
+    [pscustomobject]@{
+        RelativePath = 'HandleScope.Api\Scripts\Install-HandleScopeApi.ps1'
+        ExpectedParameters = @(
+            'EnableAutostart',
+            'EnableSessionDock',
+            'StartNow',
+            'AllowDowngrade',
+            'VerifyOnly'
+        )
+        RequiredMarkers = @(
+            '-VerifyOnly cannot be combined with installation options.',
+            '$nativeArguments.Add(''verify'')',
+            '$nativeArguments.Add(''install'')',
+            '$nativeArguments.Add(''--start-now'')',
+            '$nativeArguments.Add(''--enable-autostart'')',
+            '$nativeArguments.Add(''--enable-sessiondock'')',
+            '$nativeArguments.Add(''--allow-downgrade'')'
+        )
+    },
+    [pscustomobject]@{
+        RelativePath = 'HandleScope.Api\Scripts\Start-HandleScopeApi.ps1'
+        ExpectedParameters = @()
+        RequiredMarkers = @('''start''')
+    },
+    [pscustomobject]@{
+        RelativePath = 'HandleScope.Api\Scripts\Stop-HandleScopeApi.ps1'
+        ExpectedParameters = @()
+        RequiredMarkers = @('''stop''')
+    },
+    [pscustomobject]@{
+        RelativePath = 'HandleScope.Api\Scripts\Uninstall-HandleScopeApi.ps1'
+        ExpectedParameters = @('KeepDiagnostics')
+        RequiredMarkers = @(
+            '$nativeArguments.Add(''uninstall'')',
+            '$nativeArguments.Add(''--keep-diagnostics'')'
+        )
+    },
+    [pscustomobject]@{
+        RelativePath =
+            'HandleScope.Api\Scripts\Enable-SessionDockIntegration.ps1'
+        ExpectedParameters = @('Force')
+        RequiredMarkers = @(
+            'SupportsShouldProcess = $true',
+            '$PSCmdlet.ShouldProcess',
+            '$nativeArguments.Add(''enable-sessiondock'')',
+            '$nativeArguments.Add(''--force'')'
+        )
+    }
+)
+foreach ($wrapperCase in $wrapperCases) {
+    Assert-NativeCompatibilityWrapper `
+        -RelativePath $wrapperCase.RelativePath `
+        -ExpectedParameters $wrapperCase.ExpectedParameters `
+        -RequiredMarkers $wrapperCase.RequiredMarkers
 }
 
-function Assert-HandleScopeFileSystemItemNotLink {
-    param([Parameter(Mandatory)][IO.FileSystemInfo]$Item)
-    $linkType = $Item.PSObject.Properties['LinkType']
-    if (($null -ne $linkType -and
-         -not [string]::IsNullOrWhiteSpace([string]$linkType.Value)) -or
-        (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
-        throw 'Test path contains a file-system link or reparse point.'
-    }
-}
-
-function Assert-HandleScopeLocalPath {
-    param([Parameter(Mandatory)][string]$Path)
-    $root = [IO.Path]::GetFullPath(
-        $env:HANDLESCOPE_INTEGRATION_TEST_ROOT).TrimEnd('\', '/')
-    $fullPath = [IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
-    $prefix = $root + [IO.Path]::DirectorySeparatorChar
-    if (-not $fullPath.StartsWith(
-            $prefix,
-            [StringComparison]::OrdinalIgnoreCase)) {
-        throw 'Test helper path escaped its isolated root.'
-    }
-    return $fullPath
-}
-
-function Get-HandleScopeLocalPath {
-    param([Parameter(Mandatory)][string]$RelativePath)
-    return Assert-HandleScopeLocalPath -Path (
-        Join-Path $env:HANDLESCOPE_INTEGRATION_TEST_ROOT $RelativePath)
-}
-
-function Remove-HandleScopeLocalItem {
-    param([Parameter(Mandatory)][string]$Path)
-    $safePath = Assert-HandleScopeLocalPath -Path $Path
-    Remove-Item -LiteralPath $safePath -Force
-}
-'@
-    [IO.File]::WriteAllText(
-        $mockCommonPath,
-        $mockCommon,
-        [Text.UTF8Encoding]::new($false))
-
-    $emptyScenario = Join-Path $integrationTestRoot 'empty'
-    New-Item -ItemType Directory -Path $emptyScenario | Out-Null
-    $env:HANDLESCOPE_INTEGRATION_TEST_ROOT = $emptyScenario
-    & $helperUnderTest -Confirm:$false
-    Assert-MinimalSessionDockSettingFile -Path (
-        Join-Path $emptyScenario 'SessionDock\handlescope.json')
-
-    $legacyScenario = Join-Path $integrationTestRoot 'legacy-minimal'
-    $legacyDirectory = Join-Path $legacyScenario 'RobloxOne'
-    New-Item -ItemType Directory -Path $legacyDirectory -Force | Out-Null
-    $legacyPath = Join-Path $legacyDirectory 'handlescope.json'
-    $legacyContent = "{`n  `"enabled`": true`n}`n"
-    [IO.File]::WriteAllText(
-        $legacyPath,
-        $legacyContent,
-        [Text.UTF8Encoding]::new($false))
-    $env:HANDLESCOPE_INTEGRATION_TEST_ROOT = $legacyScenario
-    & $helperUnderTest -Confirm:$false
-    Assert-MinimalSessionDockSettingFile -Path (
-        Join-Path $legacyScenario 'SessionDock\handlescope.json')
-    if ([IO.File]::ReadAllText($legacyPath) -cne $legacyContent) {
-        throw 'Migrating a legacy minimal opt-in changed the legacy file.'
-    }
-
-    $canonicalScenario = Join-Path $integrationTestRoot 'canonical-wins'
-    $canonicalDirectory = Join-Path $canonicalScenario 'SessionDock'
-    $oldDirectory = Join-Path $canonicalScenario 'RobloxOne'
-    New-Item -ItemType Directory -Path $canonicalDirectory -Force | Out-Null
-    New-Item -ItemType Directory -Path $oldDirectory -Force | Out-Null
-    $canonicalPath = Join-Path $canonicalDirectory 'handlescope.json'
-    $canonicalContent = '{"enabled":false,"retryTimeoutSeconds":17}'
-    $oldPath = Join-Path $oldDirectory 'handlescope.json'
-    [IO.File]::WriteAllText(
-        $canonicalPath,
-        $canonicalContent,
-        [Text.UTF8Encoding]::new($false))
-    [IO.File]::WriteAllText(
-        $oldPath,
-        $legacyContent,
-        [Text.UTF8Encoding]::new($false))
-    $env:HANDLESCOPE_INTEGRATION_TEST_ROOT = $canonicalScenario
-    $canonicalConflictRejected = $false
-    try {
-        & $helperUnderTest -Confirm:$false
-    }
-    catch {
-        $canonicalConflictRejected = $true
-    }
-    if (-not $canonicalConflictRejected) {
-        throw 'A non-minimal canonical SessionDock setting was overwritten without -Force.'
-    }
-    if ([IO.File]::ReadAllText($canonicalPath) -cne $canonicalContent -or
-        [IO.File]::ReadAllText($oldPath) -cne $legacyContent) {
-        throw 'A rejected legacy migration changed canonical or legacy data.'
-    }
-    & $helperUnderTest -Force -Confirm:$false
-    Assert-MinimalSessionDockSettingFile -Path $canonicalPath
-    $forcedCanonicalContent = [IO.File]::ReadAllText($canonicalPath)
-    $replacementArtifacts = @(Get-ChildItem `
-        -LiteralPath $canonicalDirectory `
-        -File `
-        -Force |
-        Where-Object { $_.Name -cne 'handlescope.json' })
-    if ($replacementArtifacts.Count -ne 0) {
-        throw 'Atomic canonical replacement left a temporary or backup file.'
-    }
-    if ([IO.File]::ReadAllText($oldPath) -cne $legacyContent) {
-        throw 'An explicit canonical replacement changed the legacy file.'
-    }
-    & $helperUnderTest -Confirm:$false
-    if ([IO.File]::ReadAllText($canonicalPath) -cne
-        $forcedCanonicalContent) {
-        throw 'Re-running the helper changed an enabled minimal setting.'
-    }
-
-    $legacyConflictScenario = Join-Path `
-        $integrationTestRoot `
-        'legacy-nonminimal'
-    $legacyConflictDirectory = Join-Path `
-        $legacyConflictScenario `
-        'RobloxOne'
-    New-Item `
-        -ItemType Directory `
-        -Path $legacyConflictDirectory `
-        -Force |
-        Out-Null
-    $legacyConflictPath = Join-Path `
-        $legacyConflictDirectory `
-        'handlescope.json'
-    $legacyConflictContent = '{"enabled":true,"retryTimeoutSeconds":17}'
-    [IO.File]::WriteAllText(
-        $legacyConflictPath,
-        $legacyConflictContent,
-        [Text.UTF8Encoding]::new($false))
-    $env:HANDLESCOPE_INTEGRATION_TEST_ROOT = $legacyConflictScenario
-    $legacyConflictRejected = $false
-    try {
-        & $helperUnderTest -Confirm:$false
-    }
-    catch {
-        $legacyConflictRejected = $true
-    }
-    if (-not $legacyConflictRejected -or
-        (Test-Path -LiteralPath (
-            Join-Path $legacyConflictScenario 'SessionDock\handlescope.json')) -or
-        [IO.File]::ReadAllText($legacyConflictPath) -cne
-            $legacyConflictContent) {
-        throw 'A non-minimal legacy setting was not preserved and rejected.'
-    }
-    & $helperUnderTest -Force -Confirm:$false
-    Assert-MinimalSessionDockSettingFile -Path (
-        Join-Path $legacyConflictScenario 'SessionDock\handlescope.json')
-    if ([IO.File]::ReadAllText($legacyConflictPath) -cne
-        $legacyConflictContent) {
-        throw 'Explicit canonical creation changed a non-minimal legacy setting.'
-    }
-}
-finally {
-    if ($null -eq $previousTestRoot) {
-        Remove-Item Env:HANDLESCOPE_INTEGRATION_TEST_ROOT `
-            -ErrorAction SilentlyContinue
-    }
-    else {
-        $env:HANDLESCOPE_INTEGRATION_TEST_ROOT = $previousTestRoot
-    }
-    if (Test-Path -LiteralPath $integrationTestRoot) {
-        Remove-Item `
-            -LiteralPath $integrationTestRoot `
-            -Recurse `
-            -Force
-    }
-}
-
-Write-Host 'Windows PowerShell lifecycle and SessionDock compatibility validation passed.'
+Write-Host 'Windows PowerShell common-code and native-wrapper compatibility validation passed.'

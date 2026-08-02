@@ -106,6 +106,49 @@ function Get-CanonicalJsonUtcTimestamp {
     return $value
 }
 
+function Assert-WindowsX64Pe {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+
+        [Parameter(Mandatory)]
+        [string]$Description
+    )
+
+    $stream = [IO.File]::Open(
+        $Path,
+        [IO.FileMode]::Open,
+        [IO.FileAccess]::Read,
+        [IO.FileShare]::Read)
+    try {
+        if ($stream.Length -lt 70) {
+            throw "$Description is not a complete Windows PE file."
+        }
+        $reader = [IO.BinaryReader]::new($stream, [Text.Encoding]::UTF8, $true)
+        try {
+            if ($reader.ReadUInt16() -ne 0x5A4D) {
+                throw "$Description has no DOS/PE header."
+            }
+            $stream.Position = 0x3C
+            $peOffset = $reader.ReadInt32()
+            if ($peOffset -lt 64 -or $peOffset -gt $stream.Length - 6) {
+                throw "$Description has an unsafe PE header offset."
+            }
+            $stream.Position = $peOffset
+            if ($reader.ReadUInt32() -ne 0x00004550 -or
+                $reader.ReadUInt16() -ne 0x8664) {
+                throw "$Description is not a Windows x64 PE file."
+            }
+        }
+        finally {
+            $reader.Dispose()
+        }
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
 $releaseDirectory = [IO.Path]::GetFullPath($Directory)
 if (-not (Test-Path -LiteralPath $releaseDirectory -PathType Container)) {
     throw "Release directory not found: $releaseDirectory"
@@ -274,6 +317,7 @@ try {
         'THIRD_PARTY_NOTICES.md',
         'api/API.md',
         'api/HandleScope.Api.exe',
+        'api/HandleScope.Setup.exe',
         'api/HandleScope.runtime.json',
         'api/Enable-SessionDockIntegration.ps1',
         'api/HandleScope.ScriptCommon.ps1',
@@ -302,6 +346,14 @@ try {
         -Expected $expectedBundleFiles `
         -Actual $actualBundleFiles `
         -Description 'Release bundle file list'
+    foreach ($executable in @(
+            'desktop\HandleScope.exe',
+            'api\HandleScope.Api.exe',
+            'api\HandleScope.Setup.exe')) {
+        Assert-WindowsX64Pe `
+            -Path (Join-Path $bundleRoot $executable) `
+            -Description $executable
+    }
 
     $contentsManifestPath = Join-Path $bundleRoot 'CONTENTS.sha256'
     if (-not (Test-Path -LiteralPath $contentsManifestPath -PathType Leaf)) {
@@ -349,7 +401,8 @@ try {
         'handlescope.http.v1',
         'handlescope.http.v2',
         'handlescope.plan.single-use.v1',
-        'handlescope.policy.roblox-singleton-event.v1'
+        'handlescope.policy.roblox-singleton-event.v1',
+        'handlescope.setup.native.v1'
     )
     $runtimeManifestPath = Join-Path $bundleRoot 'api\HandleScope.runtime.json'
     $runtimeManifestJson = [IO.File]::ReadAllText($runtimeManifestPath)
@@ -367,7 +420,7 @@ try {
         ) `
         -Actual @($runtimeManifest.PSObject.Properties.Name) `
         -Description 'Installed runtime manifest fields'
-    if ([int]$runtimeManifest.schemaVersion -ne 1) {
+    if ([int]$runtimeManifest.schemaVersion -ne 2) {
         throw 'Installed runtime manifest schema version is invalid.'
     }
     $expectedRuntimeIdentity = [ordered]@{
@@ -423,11 +476,11 @@ try {
             'runtime', 'sourceRevision', 'sourceTimestamp',
             'discoveryApiVersion', 'supportedApiVersions',
             'preferredApiVersion', 'policies', 'capabilities',
-            'package', 'sbom', 'apiExecutable'
+            'package', 'sbom', 'apiExecutable', 'setupExecutable'
         ) `
         -Actual @($releaseManifest.PSObject.Properties.Name) `
         -Description 'External release manifest fields'
-    if ($releaseManifest.schemaVersion -ne 1 -or
+    if ($releaseManifest.schemaVersion -ne 2 -or
         $releaseManifest.product -cne 'HandleScope' -or
         $releaseManifest.repository -cne 'Makmatoe/HandleScope' -or
         $releaseManifest.version -cne $Version -or
@@ -489,6 +542,18 @@ try {
             (Get-FileHash -LiteralPath $apiExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant()) {
         throw 'External release API executable identity is invalid.'
     }
+    $setupExecutablePath = Join-Path $bundleRoot 'api\HandleScope.Setup.exe'
+    Assert-ExactList `
+        -Expected @('path', 'size', 'sha256') `
+        -Actual @($releaseManifest.setupExecutable.PSObject.Properties.Name) `
+        -Description 'External release setup executable fields'
+    if ($releaseManifest.setupExecutable.path -cne 'api/HandleScope.Setup.exe' -or
+        [long]$releaseManifest.setupExecutable.size -ne
+            [IO.FileInfo]::new($setupExecutablePath).Length -or
+        $releaseManifest.setupExecutable.sha256 -cne
+            (Get-FileHash -LiteralPath $setupExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant()) {
+        throw 'External release setup executable identity is invalid.'
+    }
 
     $approvedLicenseSha256 =
         'D160D2DF3EC45BBC238C19675D5D7C83086D4FB516B4A57647FBA85381465354'
@@ -509,7 +574,9 @@ try {
         '$version = $Matches.version',
         '$assetBaseName = "HandleScope-$version-win-x64"',
         'gh attestation verify $zip.FullName',
-        'gh release verify-asset $tag $zip.FullName'
+        'gh release verify-asset $tag $zip.FullName',
+        'HandleScope.Setup.exe',
+        '& $setup verify'
     )
     foreach ($guideControl in $requiredGuideControls) {
         if ($verificationGuide.IndexOf(

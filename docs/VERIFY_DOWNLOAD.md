@@ -15,6 +15,14 @@ the project does not require a paid certificate or signing service. Windows can
 therefore display **Unknown publisher** or a SmartScreen warning. Verify the
 release before removing its download marker or running any file.
 
+If the browser reports **Virus scan failed**, no HandleScope code has run. That
+message comes from the downloading device's browser/security-product scan and
+is separate from PowerShell execution policy. Review the browser's download
+details and Windows Security protection history, update the security product,
+and use only the canonical GitHub release. A managed-device administrator can
+review the exact asset name and published SHA-256. Do not disable protection or
+create a broad antivirus exclusion.
+
 ## 1. Verify GitHub provenance
 
 With the GitHub CLI installed, first derive the release identity from the
@@ -100,13 +108,19 @@ Expand-Archive -LiteralPath $zip.FullName -DestinationPath .\HandleScope
 ```
 
 Do not extract into a symbolic link, junction, cloud placeholder, or existing
-application directory. Then validate the complete API inventory and its
-internal per-file hashes without installing anything:
+application directory. Then use the release's native setup verifier to validate
+the complete API inventory and its internal per-file hashes without installing
+anything:
 
 ```powershell
-$installer = Join-Path .\HandleScope "$assetBaseName\api\Install-HandleScopeApi.ps1"
-& $installer `
-  -VerifyOnly
+$setup = Join-Path .\HandleScope "$assetBaseName\api\HandleScope.Setup.exe"
+if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) {
+  throw 'The native HandleScope setup verifier is missing.'
+}
+& $setup verify
+if ($LASTEXITCODE -ne 0) {
+  throw "HandleScope setup verification failed with exit code $LASTEXITCODE."
+}
 ```
 
 The command must report that the inventory and manifest hashes are valid.
@@ -114,7 +128,15 @@ The command must report that the inventory and manifest hashes are valid.
 the external SPDX document records the same bundle inventory and embedded .NET
 runtime components.
 
-Unblocking is not a trust mechanism; it only allows verified, unsigned scripts
-to run under common `RemoteSigned` PowerShell policies. Never use
-`-ExecutionPolicy Bypass` to work around a failed verification or an
-organization's policy.
+An endpoint-security product may add a small named metadata stream while it
+scans an extracted file. Native verification bounds and treats that source-only
+metadata as untrusted, hashes only the unnamed file data recorded by
+`CONTENTS.sha256`, and never copies a named stream into the installation.
+Malformed or excessive metadata still causes verification to fail.
+
+Unblocking is not a trust mechanism; it removes only the Windows Internet-zone
+marker after provenance and hashes are already trusted. The native verifier
+does not launch PowerShell and works when the local PowerShell default is
+`Restricted`. It cannot override antivirus, Smart App Control, WDAC, AppLocker,
+or other organization policy. Never use `-ExecutionPolicy Bypass`, disable
+protection, or weaken policy to work around a failed verification or refusal.

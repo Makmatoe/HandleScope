@@ -30,6 +30,11 @@ $requiredPaths = @(
     'docs\integrations\sessiondock.md'
     'global.json'
     'HandleScope.Api\Scripts\Enable-SessionDockIntegration.ps1'
+    'HandleScope.Setup\app.manifest'
+    'HandleScope.Setup\HandleScope.Setup.csproj'
+    'HandleScope.Setup\packages.lock.json'
+    'HandleScope.Setup.Tests\HandleScope.Setup.Tests.csproj'
+    'HandleScope.Setup.Tests\packages.lock.json'
     'HandleScope.slnx'
     'LICENSE.md'
     'NuGet.Config'
@@ -43,6 +48,7 @@ $requiredPaths = @(
     'ReleaseNotes\0.2.0.md'
     'ReleaseNotes\0.2.1.md'
     'ReleaseNotes\0.2.2.md'
+    'ReleaseNotes\0.3.0.md'
     'scripts\Finalize-Release.ps1'
     'scripts\Publish-Release.ps1'
     'scripts\Test-PowerShellCompatibility.ps1'
@@ -472,6 +478,155 @@ if (Test-Path -LiteralPath $releaseWorkflowPath -PathType Leaf) {
     }
 }
 
+$setupProjectPath = Join-Path `
+    $repositoryRoot `
+    'HandleScope.Setup\HandleScope.Setup.csproj'
+if (Test-Path -LiteralPath $setupProjectPath -PathType Leaf) {
+    try {
+        [xml]$setupProject = Get-Content -LiteralPath $setupProjectPath -Raw
+        $setupOutputTypes = @(
+            $setupProject.SelectNodes('/Project/PropertyGroup/OutputType') |
+                ForEach-Object { $_.InnerText }
+        )
+        $setupManifests = @(
+            $setupProject.SelectNodes(
+                '/Project/PropertyGroup/ApplicationManifest') |
+                ForEach-Object { $_.InnerText }
+        )
+        if ($setupOutputTypes.Count -ne 1 -or
+            $setupOutputTypes[0] -cne 'Exe' -or
+            $setupManifests.Count -ne 1 -or
+            $setupManifests[0] -cne 'app.manifest') {
+            $failures.Add(
+                'HandleScope.Setup must be a native executable with the reviewed application manifest.')
+        }
+    }
+    catch {
+        $failures.Add("HandleScope.Setup.csproj is not valid XML: $($_.Exception.Message)")
+    }
+}
+
+$setupManifestPath = Join-Path $repositoryRoot 'HandleScope.Setup\app.manifest'
+if (Test-Path -LiteralPath $setupManifestPath -PathType Leaf) {
+    try {
+        [xml]$setupManifest = Get-Content -LiteralPath $setupManifestPath -Raw
+        $requestedLevels = @(
+            $setupManifest.SelectNodes(
+                '//*[local-name()="requestedExecutionLevel"]')
+        )
+        if ($requestedLevels.Count -ne 1 -or
+            [string]$requestedLevels[0].level -cne 'asInvoker' -or
+            [string]$requestedLevels[0].uiAccess -cne 'false') {
+            $failures.Add(
+                'HandleScope.Setup must request exactly asInvoker with UI access disabled.')
+        }
+    }
+    catch {
+        $failures.Add("HandleScope.Setup app.manifest is not valid XML: $($_.Exception.Message)")
+    }
+}
+
+$setupSourceFiles = @(
+    Get-ChildItem `
+        -LiteralPath (Join-Path $repositoryRoot 'HandleScope.Setup') `
+        -File `
+        -Recurse `
+        -Filter '*.cs' `
+        -ErrorAction SilentlyContinue
+)
+foreach ($setupSourceFile in $setupSourceFiles) {
+    $setupSource = [IO.File]::ReadAllText($setupSourceFile.FullName)
+    if ($setupSource -match
+        '(?i)"(?:powershell|pwsh|cmd)(?:\.exe)?"') {
+        $relativePath = Get-RepositoryRelativePath -Path $setupSourceFile.FullName
+        $failures.Add(
+            "Native setup must not invoke a command shell or PowerShell: $relativePath")
+    }
+}
+
+$bundleLeaseSourcePath = Join-Path `
+    $repositoryRoot `
+    'HandleScope.Setup\BundleLease.cs'
+if (Test-Path -LiteralPath $bundleLeaseSourcePath -PathType Leaf) {
+    $bundleLeaseSource = [IO.File]::ReadAllText($bundleLeaseSourcePath)
+    foreach ($streamPolicyControl in @(
+            'bool allowSourceMetadata',
+            'allowSourceMetadata: true',
+            'allowSourceMetadata: false',
+            'data.StreamName == "::$DATA"',
+            'data.StreamName == ":Zone.Identifier:$DATA"',
+            'data.StreamSize is < 0 or > 64 * 1024',
+            '++metadataStreamCount > 8',
+            'metadataStreamBytes + data.StreamSize',
+            '> 128 * 1024',
+            'ValidateZoneIdentifier(path, description)',
+            'source.Stream.CopyTo(output)',
+            'RemoveAlternateStream(destinationPath, "Zone.Identifier")')) {
+        if ($bundleLeaseSource.IndexOf(
+                $streamPolicyControl,
+                [StringComparison]::Ordinal) -lt 0) {
+            $failures.Add(
+                "Native setup is missing its source-metadata stream control: $streamPolicyControl")
+        }
+    }
+}
+
+foreach ($capabilitySourcePath in @(
+        'HandleScope.Api\ApiHost.cs',
+        'HandleScope.IntegrationTests\Program.cs')) {
+    $fullCapabilitySourcePath = Join-Path $repositoryRoot $capabilitySourcePath
+    if (Test-Path -LiteralPath $fullCapabilitySourcePath -PathType Leaf) {
+        $capabilitySource = [IO.File]::ReadAllText($fullCapabilitySourcePath)
+        if ($capabilitySource.IndexOf(
+                'handlescope.setup.native.v1',
+                [StringComparison]::Ordinal) -lt 0) {
+            $failures.Add(
+                "Native setup capability is missing from $capabilitySourcePath.")
+        }
+    }
+}
+
+$publishReleasePath = Join-Path $repositoryRoot 'scripts\Publish-Release.ps1'
+if (Test-Path -LiteralPath $publishReleasePath -PathType Leaf) {
+    $publishRelease = [IO.File]::ReadAllText($publishReleasePath)
+    foreach ($publishControl in @(
+            'HandleScope.Setup\HandleScope.Setup.csproj',
+            '$setupPublishArguments',
+            '-p:EnableCompressionInSingleFile=false',
+            'HandleScope.Setup.exe',
+            'schemaVersion = 2',
+            'handlescope.setup.native.v1',
+            'bundle/api/HandleScope.Setup.exe',
+            'api/HandleScope.Setup.exe')) {
+        if ($publishRelease.IndexOf(
+                $publishControl,
+                [StringComparison]::Ordinal) -lt 0) {
+            $failures.Add(
+                "Release staging is missing its native-setup control: $publishControl")
+        }
+    }
+}
+
+$finalizeReleaseSourcePath = Join-Path `
+    $repositoryRoot `
+    'scripts\Finalize-Release.ps1'
+if (Test-Path -LiteralPath $finalizeReleaseSourcePath -PathType Leaf) {
+    $finalizeReleaseSource = [IO.File]::ReadAllText($finalizeReleaseSourcePath)
+    foreach ($finalizeControl in @(
+            'bundle/api/HandleScope.Setup.exe',
+            'api/HandleScope.Setup.exe',
+            'schemaVersion = 2',
+            'handlescope.setup.native.v1',
+            'setupExecutable = [ordered]@{')) {
+        if ($finalizeReleaseSource.IndexOf(
+                $finalizeControl,
+                [StringComparison]::Ordinal) -lt 0) {
+            $failures.Add(
+                "Release finalization is missing its native-setup control: $finalizeControl")
+        }
+    }
+}
+
 $releaseAssetVerifierPath = Join-Path `
     $repositoryRoot `
     'scripts\Verify-ReleaseAssets.ps1'
@@ -522,6 +677,21 @@ if (Test-Path -LiteralPath $releaseAssetVerifierPath -PathType Leaf) {
         $verifierSource -match '(?i)\[Diagnostics\.Process\]::Start|\[System\.Diagnostics\.Process\]::Start') {
         $failures.Add('Release asset verification must treat extracted files as data and never execute them.')
     }
+    foreach ($nativeSetupVerifierControl in @(
+            'Assert-WindowsX64Pe',
+            'api\HandleScope.Setup.exe',
+            'api/HandleScope.Setup.exe',
+            'handlescope.setup.native.v1',
+            'Installed runtime manifest schema version is invalid.',
+            'External release setup executable fields',
+            'External release setup executable identity is invalid.')) {
+        if ($verifierSource.IndexOf(
+                $nativeSetupVerifierControl,
+                [StringComparison]::Ordinal) -lt 0) {
+            $failures.Add(
+                "Release asset verification is missing its native-setup control: $nativeSetupVerifierControl")
+        }
+    }
 }
 
 $verificationGuidePath = Join-Path $repositoryRoot 'docs\VERIFY_DOWNLOAD.md'
@@ -535,12 +705,59 @@ if (Test-Path -LiteralPath $verificationGuidePath -PathType Leaf) {
             '$version = $Matches.version',
             '$assetBaseName = "HandleScope-$version-win-x64"',
             'gh attestation verify $zip.FullName',
-            'gh release verify-asset $tag $zip.FullName')) {
+            'gh release verify-asset $tag $zip.FullName',
+            'HandleScope.Setup.exe',
+            '& $setup verify')) {
         if ($verificationGuide.IndexOf(
                 $requiredGuideControl,
                 [StringComparison]::Ordinal) -lt 0) {
             $failures.Add(
                 "Download verification guide is missing its version-neutral control: $requiredGuideControl")
+        }
+    }
+}
+
+$installationGuidePath = Join-Path $repositoryRoot 'docs\INSTALL.md'
+if (Test-Path -LiteralPath $installationGuidePath -PathType Leaf) {
+    $installationGuide = [IO.File]::ReadAllText($installationGuidePath)
+    foreach ($installationControl in @(
+            'HandleScope.Setup.exe install --start-now',
+            'fixed eleven-file API inventory',
+            'does not need or change a',
+            '**Virus scan failed**',
+            'Do not disable scanning',
+            'broad exclusion.',
+            'source-only endpoint metadata',
+            'at most eight per',
+            '64 KiB each',
+            '128 KiB total',
+            'Only the locked unnamed data stream is hashed and copied.',
+            'No named stream is',
+            'staged and installed file must have only its',
+            '## Legacy PowerShell compatibility')) {
+        if ($installationGuide.IndexOf(
+                $installationControl,
+                [StringComparison]::Ordinal) -lt 0) {
+            $failures.Add(
+                "Installation guide is missing its native-setup safety control: $installationControl")
+        }
+    }
+}
+
+$securityPolicyPath = Join-Path $repositoryRoot 'SECURITY.md'
+if (Test-Path -LiteralPath $securityPolicyPath -PathType Leaf) {
+    $securityPolicy = [IO.File]::ReadAllText($securityPolicyPath)
+    foreach ($securityStreamControl in @(
+            'well-formed source-only metadata',
+            'validates `Zone.Identifier` separately',
+            'Integrity hashes and installation copies use only the locked',
+            'Named streams are never copied',
+            'installed files must contain only unnamed data')) {
+        if ($securityPolicy.IndexOf(
+                $securityStreamControl,
+                [StringComparison]::Ordinal) -lt 0) {
+            $failures.Add(
+                "Security policy is missing its source-metadata stream control: $securityStreamControl")
         }
     }
 }
@@ -559,26 +776,36 @@ if (Test-Path -LiteralPath $sessionDockContractPath -PathType Leaf) {
         'adapters already compiled into SessionDock',
         'must never define endpoint paths',
         'exact canonical Windows x64 package, checksum',
-        'API executable, optional HandleScope release manifest',
+        'API executable, required HandleScope release manifest',
+        'schema-v2 manifest''s exact',
+        '`api/HandleScope.Setup.exe` size and SHA-256 digest',
+        '`handlescope.setup.native.v1`',
         'byte length, SHA-256 digest',
         'non-approved HTTPS download redirect',
         '`Content-Length` is acceptable only when the bounded stream',
         'present contradictory length must be rejected',
         'cap entry count and total expanded bytes',
         'complete internal `CONTENTS.sha256`',
-        'run only the release''s unmodified',
-        '`api\Install-HandleScopeApi.ps1`, once with `-VerifyOnly`',
-        '`-ExecutionPolicy RemoteSigned` only for each verified child process',
-        'never use `Bypass` or `Unrestricted`',
-        '`-StartNow -EnableAutostart` as',
-        'must not pass `-EnableSessionDock`',
+        'compiled SessionDock adapter',
+        '`api\HandleScope.Setup.exe`. It runs `verify`, then',
+        '`install --start-now --enable-autostart` only after the confirmation',
+        'direct process creation as the current standard user',
+        'no shell, PowerShell, arbitrary path',
+        'separately compiled legacy adapter',
+        'process-scoped',
+        '`RemoteSigned` for those already verified local scripts',
+        'never `Bypass`',
+        'Native setup must not',
+        'receive `--enable-sessiondock`',
+        'legacy adapter must not pass',
+        '`-EnableSessionDock`',
         '**Check versions** action',
         'Opening the panel and **Refresh** remain local-only',
-        'version-specific confirmation',
+        'requires a new version-specific',
         'never embed its files, elevate it, uninstall it, downgrade it',
         'silently update or retry an installation',
         'It never passes',
-        '`-AllowDowngrade`'
+        '`--allow-downgrade` or legacy `-AllowDowngrade`'
     )
     foreach ($control in $requiredManagedSetupControls) {
         if ($sessionDockContract.IndexOf(
@@ -657,106 +884,103 @@ if (Test-Path -LiteralPath $finalizeReleasePath -PathType Leaf) {
     }
 }
 
-$installerSourcePath = Join-Path `
-    $repositoryRoot `
-    'HandleScope.Api\Scripts\Install-HandleScopeApi.ps1'
-if (Test-Path -LiteralPath $installerSourcePath -PathType Leaf) {
-    $installerSource = [IO.File]::ReadAllText($installerSourcePath)
-    $verificationMarker = 'Release integrity check failed for $($sourceFile.Name).'
-    $dotSourceCall = '. $commonScript'
-    $verificationIndex = $installerSource.IndexOf(
-        $verificationMarker,
-        [StringComparison]::Ordinal)
-    $dotSourceIndex = $installerSource.IndexOf(
-        $dotSourceCall,
-        [StringComparison]::Ordinal)
-    if ($verificationIndex -lt 0 -or
-        $dotSourceIndex -lt 0 -or
-        $dotSourceIndex -le $verificationIndex -or
-        $installerSource.IndexOf(
-            'fixed ten-file allowlist',
-            [StringComparison]::Ordinal) -lt 0) {
-        $failures.Add('Release installer must enforce the fixed source allowlist and manifest hashes before dot-sourcing common code.')
+$compatibilityWrapperContracts = @(
+    [pscustomobject]@{
+        Path = 'HandleScope.Api\Scripts\Install-HandleScopeApi.ps1'
+        Markers = @(
+            '$nativeArguments.Add(''verify'')',
+            '$nativeArguments.Add(''install'')',
+            '$nativeArguments.Add(''--start-now'')',
+            '$nativeArguments.Add(''--enable-autostart'')',
+            '$nativeArguments.Add(''--enable-sessiondock'')',
+            '$nativeArguments.Add(''--allow-downgrade'')'
+        )
+    },
+    [pscustomobject]@{
+        Path = 'HandleScope.Api\Scripts\Start-HandleScopeApi.ps1'
+        Markers = @('''start''')
+    },
+    [pscustomobject]@{
+        Path = 'HandleScope.Api\Scripts\Stop-HandleScopeApi.ps1'
+        Markers = @('''stop''')
+    },
+    [pscustomobject]@{
+        Path = 'HandleScope.Api\Scripts\Uninstall-HandleScopeApi.ps1'
+        Markers = @(
+            '$nativeArguments.Add(''uninstall'')',
+            '$nativeArguments.Add(''--keep-diagnostics'')'
+        )
+    },
+    [pscustomobject]@{
+        Path =
+            'HandleScope.Api\Scripts\Enable-SessionDockIntegration.ps1'
+        Markers = @(
+            'SupportsShouldProcess = $true',
+            '$PSCmdlet.ShouldProcess',
+            '$nativeArguments.Add(''enable-sessiondock'')',
+            '$nativeArguments.Add(''--force'')'
+        )
     }
-
-    $copiedVerificationMarker =
-        'Installed-file verification failed for $($sourceFile.Name).'
-    $unblockMarker =
-        'Microsoft.PowerShell.Utility\Unblock-File -LiteralPath $copiedPath'
-    $copiedVerificationIndex = $installerSource.IndexOf(
-        $copiedVerificationMarker,
-        [StringComparison]::Ordinal)
-    $unblockIndex = $installerSource.IndexOf(
-        $unblockMarker,
-        [StringComparison]::Ordinal)
-    if ($copiedVerificationIndex -lt 0 -or
-        $unblockIndex -le $copiedVerificationIndex) {
-        $failures.Add('Release installer must remove download markers only after verifying the copied file hash.')
+)
+foreach ($wrapperContract in $compatibilityWrapperContracts) {
+    $wrapperPath = Join-Path $repositoryRoot $wrapperContract.Path
+    if (-not (Test-Path -LiteralPath $wrapperPath -PathType Leaf)) {
+        continue
     }
-
-    $enableSessionDockSwitch = $installerSource.IndexOf(
-        '[switch]$EnableSessionDock',
-        [StringComparison]::Ordinal)
-    $startNowBlock = $installerSource.LastIndexOf(
-        'if ($StartNow)',
-        [StringComparison]::Ordinal)
-    $enableSessionDockBlock = $installerSource.LastIndexOf(
-        'if ($EnableSessionDock)',
-        [StringComparison]::Ordinal)
-    $installedHelperCall = $installerSource.IndexOf(
-        "& (Join-Path `$installRoot 'Enable-SessionDockIntegration.ps1')",
-        [StringComparison]::Ordinal)
-    if ($enableSessionDockSwitch -lt 0 -or
-        $startNowBlock -lt 0 -or
-        $enableSessionDockBlock -le $startNowBlock -or
-        $installedHelperCall -le $enableSessionDockBlock) {
-        $failures.Add('Release installer must expose an explicit SessionDock opt-in and invoke only the installed helper after optional startup.')
-    }
-}
-
-$sessionDockHelperPath = Join-Path `
-    $repositoryRoot `
-    'HandleScope.Api\Scripts\Enable-SessionDockIntegration.ps1'
-if (Test-Path -LiteralPath $sessionDockHelperPath -PathType Leaf) {
-    $sessionDockHelper = [IO.File]::ReadAllText($sessionDockHelperPath)
-    $requiredHelperControls = @(
-        'SupportsShouldProcess = $true',
-        '[switch]$Force',
-        "Get-HandleScopeLocalPath -RelativePath 'SessionDock'",
-        "Get-HandleScopeLocalPath -RelativePath 'RobloxOne'",
-        "Join-Path `$settingsDirectory 'handlescope.json'",
-        "Join-Path `$legacySettingsDirectory 'handlescope.json'",
-        '$PSCmdlet.ShouldProcess',
-        '[IO.FileMode]::CreateNew',
-        '$stream.Flush($true)',
-        '[IO.File]::Move($temporaryPath, $settingsPath)',
-        '[IO.File]::Replace(',
-        '$backupPath,',
-        'Remove-HandleScopeLocalItem -Path $backupPath'
-    )
-    foreach ($control in $requiredHelperControls) {
-        if ($sessionDockHelper.IndexOf(
-                $control,
+    $wrapperSource = [IO.File]::ReadAllText($wrapperPath)
+    foreach ($requiredWrapperControl in @(
+            "'HandleScope.Setup.exe'",
+            '& $setup',
+            '$LASTEXITCODE -ne 0') + $wrapperContract.Markers) {
+        if ($wrapperSource.IndexOf(
+                $requiredWrapperControl,
                 [StringComparison]::Ordinal) -lt 0) {
-            $failures.Add("SessionDock helper is missing its reviewed local-write control: $control")
+            $failures.Add(
+                "Native compatibility wrapper is missing '$requiredWrapperControl': $($wrapperContract.Path)")
         }
     }
-    if ($sessionDockHelper -match '(?i)Start-Process|Invoke-WebRequest|Invoke-RestMethod|HttpClient|connection\.json|\btoken\b') {
-        $failures.Add('SessionDock helper must not start software, use the network, or access HandleScope connection credentials.')
-    }
-    $canonicalPathIndex = $sessionDockHelper.IndexOf(
-        "Get-HandleScopeLocalPath -RelativePath 'SessionDock'",
-        [StringComparison]::Ordinal)
-    $legacyPathIndex = $sessionDockHelper.IndexOf(
-        "Get-HandleScopeLocalPath -RelativePath 'RobloxOne'",
-        [StringComparison]::Ordinal)
-    if ($canonicalPathIndex -lt 0 -or
-        $legacyPathIndex -le $canonicalPathIndex) {
-        $failures.Add('SessionDock helper must select and inspect the canonical path before consulting legacy state.')
-    }
-    if ($sessionDockHelper -match '(?i)Move-Item[^\r\n]*\$settingsPath[^\r\n]*-Force' -or
-        $sessionDockHelper -match '(?i)Remove-(?:Item|HandleScopeLocalItem)[^\r\n]*\$legacySettings') {
-        $failures.Add('SessionDock helper must not force-overwrite a newly created canonical file or remove legacy settings.')
+
+    $wrapperTokens = $null
+    $wrapperParseErrors = $null
+    $wrapperAst = [Management.Automation.Language.Parser]::ParseFile(
+        $wrapperPath,
+        [ref]$wrapperTokens,
+        [ref]$wrapperParseErrors)
+    $wrapperInvocations = @(
+        $wrapperAst.FindAll(
+            {
+                param($node)
+                $node -is [Management.Automation.Language.CommandAst] -and
+                $node.InvocationOperator -eq
+                    [Management.Automation.Language.TokenKind]::Ampersand
+            },
+            $true)
+    )
+    $wrapperDotSources = @(
+        $wrapperAst.FindAll(
+            {
+                param($node)
+                $node -is [Management.Automation.Language.CommandAst] -and
+                $node.InvocationOperator -eq
+                    [Management.Automation.Language.TokenKind]::Dot
+            },
+            $true)
+    )
+    $forbiddenWrapperPattern =
+        '(?i)\b(?:Copy-Item|Move-Item|Remove-Item|Start-Process|' +
+        'Register-ScheduledTask|Unregister-ScheduledTask|' +
+        'Invoke-WebRequest|Invoke-RestMethod|Set-ExecutionPolicy)\b|' +
+        '-ExecutionPolicy|\bBypass\b|\bUnrestricted\b'
+    if ($wrapperInvocations.Count -ne 1 -or
+        $wrapperInvocations[0].Extent.Text -cnotmatch
+            '^&\s+\$setup(?:\s|$)' -or
+        $wrapperDotSources.Count -ne 0 -or
+        $wrapperSource.IndexOf(
+            'HandleScope.ScriptCommon.ps1',
+            [StringComparison]::Ordinal) -ge 0 -or
+        $wrapperSource -match $forbiddenWrapperPattern) {
+        $failures.Add(
+            "Compatibility wrapper must remain a thin native mapping: $($wrapperContract.Path)")
     }
 }
 

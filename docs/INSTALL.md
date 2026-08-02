@@ -15,21 +15,46 @@ Before running any file:
 
 1. Verify the ZIP's GitHub artifact attestation and SHA-256 hash against
    `SHA256SUMS.txt`.
-2. Only after verification, use `Unblock-File` on the downloaded ZIP so its
-   unsigned scripts can run under common `RemoteSigned` PowerShell policies.
+2. Only after verification, use `Unblock-File` on the downloaded ZIP so Windows
+   does not carry its Internet-zone marker into the verified extracted files.
 3. Extract the complete ZIP to a new local directory that is not a symbolic
    link, junction, cloud placeholder, or other reparse-point path.
-4. Run the installer's `-VerifyOnly` check for the exact bundle inventory and
+4. Run `api\HandleScope.Setup.exe verify` for the exact bundle inventory and
    internal file hashes.
 5. Review the release notes and provenance shown on the GitHub release.
 
 Exact commands are in [`VERIFY_DOWNLOAD.md`](VERIFY_DOWNLOAD.md). Stop if the
 repository identity, provenance, hash, or file inventory does not match.
 
+PowerShell execution policy, Mark-of-the-Web, and antivirus reputation are
+different controls. `Restricted` blocks `.ps1` files even when they are
+unblocked; `Unblock-File` removes only the Internet-zone marker and is not a
+trust check. `HandleScope.Setup.exe` is native, so it does not need or change a
+PowerShell policy. Organization-enforced application control and security
+software can still refuse any executable.
+
+`-ExecutionPolicy` is an option for starting a new PowerShell process, not a
+standalone command or an installer-script parameter. Appending
+`-ExecutionPolicy Bypass`, `--ExecutionPolicy`, or `--ExecutionBypass` to a
+lifecycle command cannot make a blocked script start and is not a supported
+HandleScope setup path.
+
 The release is intentionally not Authenticode-signed because HandleScope uses
-no paid certificate or signing service. Windows may show **Unknown publisher**
-or a SmartScreen warning. That warning is expected for this delivery model, but
-it is not a substitute for the verification steps above.
+no paid certificate or signing service. Windows may show **Unknown publisher**,
+a SmartScreen warning, or a security-product reputation block. Verify the
+canonical release, but do not disable antivirus, SmartScreen, Smart App Control,
+or organization policy. If a managed device still refuses the verified file,
+ask its administrator to review the canonical asset and its published hashes.
+
+A browser message such as **Virus scan failed** occurs before HandleScope setup
+runs. It means that device's browser-to-security-product download scan did not
+complete or refused the file; it is not a PowerShell execution-policy error.
+The same asset can therefore download on one PC but fail on another because the
+devices have different security products, policy, reputation state, or scanner
+health. Check the browser download details and Windows Security protection
+history, install current security intelligence, and use the canonical GitHub
+release. On a managed device, give the asset name and published SHA-256 to the
+administrator. Do not disable scanning or add a broad exclusion.
 
 ## Portable desktop
 
@@ -53,28 +78,39 @@ Scheduler before continuing. Also remove that older build's installation only
 after verifying its path. The new standard-user installer intentionally does
 not modify an unexpected older task or request UAC approval on its behalf.
 
-From a normal PowerShell window, change to the extracted `api` directory and
-run this recommended one-command setup:
+From a normal, non-administrator terminal, change to the extracted `api`
+directory and run this recommended native setup command:
 
 ```powershell
-.\Install-HandleScopeApi.ps1 -StartNow -EnableAutostart -EnableSessionDock
+.\HandleScope.Setup.exe install --start-now --enable-autostart --enable-sessiondock
 ```
 
-Omit `-EnableAutostart` if the API should not start automatically at sign-in,
-and omit `-EnableSessionDock` if SessionDock should not be opted in. Both
+Omit `--enable-autostart` if the API should not start automatically at sign-in,
+and omit `--enable-sessiondock` if SessionDock should not be opted in. Both
 options are explicit; neither is enabled silently.
 
-The installer independently requires the fixed ten-file API inventory,
-rejects linked source paths, checks manifest hashes, stages and re-verifies the
-replacement, and installs it at:
+The setup tool independently requires the fixed eleven-file API inventory,
+rejects linked or ambiguous source paths, checks manifest hashes through locked
+handles, stages and re-verifies the replacement, and installs it at:
 
 ```text
 %LOCALAPPDATA%\Programs\HandleScope\Api
 ```
 
-The operation is per-user and does not request UAC approval. Do not use
-`-ExecutionPolicy Bypass`; verify and unblock the ZIP before extraction, or
-follow the policy set by your organization or administrator.
+The operation is per-user and does not request UAC approval. It never launches
+PowerShell, changes saved execution policy, overrides Group Policy, or uses
+`Bypass` or `Unrestricted`.
+
+Endpoint security may attach alternate data streams such as
+`:mshield:$DATA` to downloaded or extracted files. Setup treats these as
+untrusted, source-only endpoint metadata rather than product content. It accepts
+only well-formed named `$DATA` streams within strict bounds: at most eight per
+file, no more than 64 KiB each, and no more than 128 KiB total. A
+`Zone.Identifier` stream has its own 4 KiB limit and strict syntax validation.
+Only the locked unnamed data stream is hashed and copied. No named stream is
+copied from the release, and every staged and installed file must have only its
+unnamed data stream. Malformed, excessive, changing, or residual streams fail
+closed.
 
 After each staged file matches the reviewed release manifest, the installer
 removes only that installed copy's Windows download marker. This does not
@@ -86,10 +122,10 @@ Autostart is off on a first installation. To install and start without
 autostart or SessionDock integration, use:
 
 ```powershell
-.\Install-HandleScopeApi.ps1 -StartNow
+.\HandleScope.Setup.exe install --start-now
 ```
 
-When `-EnableAutostart` is supplied, the installer creates one scheduled task
+When `--enable-autostart` is supplied, setup creates one scheduled task
 for the current Windows SID and interactive logon. The task uses `RunLevel
 Limited`; it does not run as administrator, another user, a service account, or
 session 0. Installing an update without the switch does not remove an autostart
@@ -120,11 +156,15 @@ policy, override Group Policy, or perform silent lifecycle actions. The exact
 required client controls are in
 [`integrations/sessiondock.md`](integrations/sessiondock.md).
 
-For manual setup, `-EnableSessionDock` on the install command is the easiest
+SessionDock 2.9.0 and later may select HandleScope 0.3.x through the native
+setup capability after that separate release is published. SessionDock 2.8.x
+remains bound to its authenticated HandleScope 0.2.2 fallback.
+
+For manual setup, `--enable-sessiondock` on the install command is the easiest
 explicit opt-in. To enable it separately later, run:
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\HandleScope\Api\Enable-SessionDockIntegration.ps1"
+& "$env:LOCALAPPDATA\Programs\HandleScope\Api\HandleScope.Setup.exe" enable-sessiondock
 ```
 
 The helper writes only this non-secret file:
@@ -139,21 +179,22 @@ modify Roblox accounts. If the canonical file is absent, an older minimal
 opt-in at `%LOCALAPPDATA%\RobloxOne\handlescope.json` is copied to the canonical
 path without deleting legacy data. Legacy state never overwrites a canonical
 file. If the canonical file has the integration disabled or uses a non-minimal
-format, the helper requires the explicit `-Force` switch before replacing it.
+format, setup requires the explicit `--force` option before replacing it.
 
 Start the API separately before launching through SessionDock:
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\HandleScope\Api\Start-HandleScopeApi.ps1"
+& "$env:LOCALAPPDATA\Programs\HandleScope\Api\HandleScope.Setup.exe" start
 ```
 
 ## Start and stop
 
-Use the installed scripts from a normal PowerShell window:
+Use the installed native setup tool from a normal terminal:
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\HandleScope\Api\Start-HandleScopeApi.ps1"
-& "$env:LOCALAPPDATA\Programs\HandleScope\Api\Stop-HandleScopeApi.ps1"
+$setup = "$env:LOCALAPPDATA\Programs\HandleScope\Api\HandleScope.Setup.exe"
+& $setup start
+& $setup stop
 ```
 
 Start validates any active discovery document and refuses to mask a live or
@@ -170,27 +211,39 @@ HandleScope does not download or install updates automatically. To update:
 
 1. Download and verify the complete newer release as described above.
 2. Close the portable desktop if it is running.
-3. Run the newer release's `api\Install-HandleScopeApi.ps1 -StartNow` from a
-   normal PowerShell window. Add `-EnableAutostart` if enabling or refreshing
+3. Run the newer release's `api\HandleScope.Setup.exe install --start-now` from
+   a normal terminal. Add `--enable-autostart` if enabling or refreshing
    the optional task is intended.
 
 The installer stops the currently installed API before replacing its files and
-refuses a version downgrade by default. `-AllowDowngrade` is an explicit
+refuses a version downgrade by default. `--allow-downgrade` is an explicit
 recovery control; use it only after verifying the older official release and
 understanding why rollback is necessary.
 
 ## Uninstall
 
-Run the installed uninstaller from a normal PowerShell window:
+Run the installed native setup tool from a normal terminal:
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\HandleScope\Api\Uninstall-HandleScopeApi.ps1"
+& "$env:LOCALAPPDATA\Programs\HandleScope\Api\HandleScope.Setup.exe" uninstall
 ```
 
 It authenticates and stops the API, validates and removes the expected
 per-user autostart task if present, removes the API installation, and deletes
-`%LOCALAPPDATA%\HandleScope`. Add `-KeepDiagnostics` only when you intentionally
+`%LOCALAPPDATA%\HandleScope`. Add `--keep-diagnostics` only when you intentionally
 want to retain the local runtime directory and log for troubleshooting.
+
+## Legacy PowerShell compatibility
+
+The seven `.ps1` files remain in the release and installed directory so older
+automation does not break. In 0.3.0 the install, start, stop, SessionDock opt-in,
+and uninstall scripts are compatibility wrappers around fixed native commands.
+They are not the recommended interface and remain subject to PowerShell policy.
+If a verified older 0.1.x or 0.2.x release must be recovered manually, a new
+Windows PowerShell child may use process-scoped `RemoteSigned` after the ZIP is
+verified and unblocked. That setting cannot override `MachinePolicy` or
+`UserPolicy`. Never substitute `Bypass`, persist a policy change, or disable a
+security product to make a legacy script run.
 
 ## Build from source
 

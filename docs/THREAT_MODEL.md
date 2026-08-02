@@ -6,10 +6,11 @@ HandleScope can duplicate and close handles in other Windows processes. A
 mistaken or malicious close can destabilize the target even when no Windows
 privilege boundary is crossed.
 
-The desktop application and headless API both run as the invoking standard user
-(`asInvoker`) and do not enable `SeDebugPrivilege`. The desktop exposes an
-interactive, confirmed close operation only for non-elevated processes owned by
-the same Windows SID in the same interactive session.
+The desktop application, headless API, and native setup tool run as the invoking
+standard user (`asInvoker`) and do not enable `SeDebugPrivilege`. Setup also
+rejects elevated, service-account, and session-0 execution. The desktop exposes
+an interactive, confirmed close operation only for non-elevated processes owned
+by the same Windows SID in the same interactive session.
 
 The API is a narrower boundary. It refuses to start with an elevated token, as
 a Windows service account, or in session 0. It accepts only the compiled
@@ -30,17 +31,19 @@ the identity or intent of another same-user process.
   reviewed, or the exact compiled automation recipe.
 - Confidentiality of handle names, local paths, process metadata, session
   identifiers, and the rotating API bearer token.
-- Integrity of the installed executable, lifecycle scripts, optional scheduled
-  task, connection document, and release pipeline.
+- Integrity of the installed API and setup executables, compatibility scripts,
+  optional scheduled task, connection document, and release pipeline.
 - Availability of the user session and Roblox client during automation.
 
 ## Trust boundaries
 
 1. A user downloads a release from GitHub, verifies its repository-bound
-   attestation and checksums, then unblocks and extracts it locally. As a
-   separately reviewed alternative, SessionDock may download one exactly pinned
-   official release only after version-specific confirmation and must verify
-   its fixed external and internal identity before running the installer.
+   attestation and checksums, then unblocks and extracts it locally. The native
+   setup executable validates the exact internal inventory before installation;
+   it does not use PowerShell. As a separately reviewed alternative, SessionDock
+   may download one exactly pinned official release only after version-specific
+   confirmation and must verify its fixed external and internal API and setup
+   executable identities before running the compiled setup adapter.
 2. The user drives the desktop UI, which crosses into Windows process and native
    handle APIs using that user's existing access token.
 3. A local client reads `%LOCALAPPDATA%\HandleScope\connection.json` and sends
@@ -84,10 +87,11 @@ signature whose organization is `Roblox Corporation`.
 | Close without review or request replay | Each successful dry run receives a cryptographically random plan ID bound to its canonical request; execution must present both, and the plan expires after five monotonic seconds and is consumed once | A same-user attacker with the token can create enough plans or operations to cause bounded denial of service; a disclosed plan ID can be raced and consumed |
 | Concurrent destructive requests | A single-operation gate rejects overlap with `429` | Callers may retry and cause local denial of service |
 | Tampered connection or runtime directory | The runtime directory rejects reparse points and applies a protected current-user ACL; clients validate URL, token shape, API PID/name, version, and health policy | Same-user malware can still change same-user state |
-| Installer substitution or downgrade | Installer admits only the fixed ten-file API source set, executes no adjacent helper before checking the complete internal manifest, rechecks staged files, uses staged replacement, refuses linked source/install paths, and blocks downgrade by default | Internal hashes do not authenticate origin because a malicious bundle could replace both file and manifest; users must first verify the GitHub attestation and external ZIP checksum. An explicit manual `-AllowDowngrade` bypasses version ordering, but SessionDock never passes it |
-| A managed SessionDock setup substitutes or silently runs HandleScope | The integration contract requires a signed rollback-resistant catalog, immutable canonical asset and executable identities, compiled-only protocol adapters, a dedicated version-specific confirmation, matching checksums, bounded safe extraction, exact internal inventory verification, an initial `-VerifyOnly` phase, standard-user execution, and separate integration opt-in | SessionDock's release process, signing key, and embedded bootstrap become additional trusted inputs; a compromised same-user client can still invoke commands with that user's authority |
+| Installer substitution, race, metadata-stream injection, or downgrade | Native setup admits only the fixed eleven-file API source set; locks and verifies the manifest, unnamed source data, and directory identities; permits only bounded untrusted source metadata streams; validates `Zone.Identifier`; hashes and copies only unnamed bytes; requires stream-clean staged and installed files; recovers its bounded swap transaction; and blocks downgrade by default | Named source streams are not authenticated content and are never copied. Internal hashes do not authenticate origin because a malicious bundle could replace both setup and its manifest; users must first verify the GitHub attestation and external ZIP checksum. An explicit manual `--allow-downgrade` bypasses version ordering, but SessionDock never passes it |
+| PowerShell policy is weakened to make setup run | The recommended setup, start, stop, opt-in, and uninstall commands are fixed native commands; compatibility scripts remain optional wrappers only. Setup never launches PowerShell or changes policy | `MachinePolicy`, `UserPolicy`, WDAC, AppLocker, Smart App Control, and antivirus may still block execution; HandleScope does not bypass them |
+| A managed SessionDock setup substitutes or silently runs HandleScope | The integration contract requires a signed rollback-resistant catalog, immutable canonical package/API/setup identities, compiled-only setup and protocol adapters, a dedicated version-specific confirmation, matching checksums, bounded safe extraction, locked exact inventory verification, an initial native `verify` phase, standard-user execution, and separate integration opt-in | SessionDock's release process, signing key, and embedded bootstrap become additional trusted inputs; a compromised same-user client can still invoke commands with that user's authority |
 | Scheduled-task persistence is widened | Autostart is opt-in, per-SID, interactive-logon only, and `RunLevel Limited`; install/uninstall validate the expected action and privilege level | The owning user can modify their own limited task |
-| Supply-chain substitution | Restore is locked; third-party package references are prohibited; workflow actions are pinned; release publication is environment-approved and fresh-only; exact catalogs, checksums, SPDX inventory, redownload verification, immutable releases, and GitHub attestations are required | GitHub, repository administration, Actions, and the maintainer's account remain trusted dependencies; the free release model provides no Windows publisher identity |
+| Supply-chain substitution | Restore is locked; third-party package references are prohibited; workflow actions are pinned; release publication is environment-approved and fresh-only; exact catalogs, API/setup identities, checksums, SPDX inventory, redownload verification, immutable releases, and GitHub attestations are required | GitHub, repository administration, Actions, and the maintainer's account remain trusted dependencies; the free release model provides no Windows publisher identity and reputation systems may block a new unsigned hash |
 | Sensitive data enters diagnostics | No telemetry exists; API logs contain only bounded lifecycle and generic failure data; HTTP errors omit exception details and raw native identifiers | Desktop screenshots and manually copied output can still expose local names or paths |
 
 ## Desktop-specific considerations
@@ -114,7 +118,8 @@ fail-closed and the produced assets pass independent verification:
   pass without weakening exclusions;
 - the protected release environment admits only the reviewed tag-triggered
   publication job and requires no secret or external signing account;
-- the final ZIP inventory, SHA-256 checksums, SPDX SBOM, GitHub provenance, and
+- the final ZIP inventory, native setup/API identities, runtime and external
+  manifest capabilities, SHA-256 checksums, SPDX SBOM, GitHub provenance, and
   downloaded draft assets all verify before publication;
 - release notes accurately disclose the destructive behavior, supported policy,
   privacy behavior, and known limitations.
@@ -132,6 +137,9 @@ provenance, or release-state verification into a public release.
   forcibly closed.
 - Guaranteeing compatibility if Windows changes the internal system-handle
   information class used for discovery.
+- Overriding an organization's PowerShell, application-control, SmartScreen,
+  Smart App Control, or antivirus policy, or guaranteeing reputation acceptance
+  for unsigned binaries.
 
 These exclusions do not broaden the API policy or justify running HandleScope
 with administrator rights.

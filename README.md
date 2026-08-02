@@ -8,13 +8,16 @@ automation API. It contains:
   session;
 - `HandleScope.Api.exe`, an independent loopback API whose release policy can
   close only Roblox's exact session singleton event;
+- `HandleScope.Setup.exe`, a native, fixed-command verifier and per-user
+  lifecycle tool that does not depend on PowerShell script execution;
 - `HandleScope.Core`, the shared Windows process and native-handle engine;
 - a controlled integration harness that operates only on a child process it
   creates.
 
-Both applications run as the current standard user (`asInvoker`). They do not
-request administrator rights or enable `SeDebugPrivilege`. The desktop does not
-depend on the API, and the API does not open or depend on the desktop.
+The desktop, API, and setup executables run as the current standard user
+(`asInvoker`). They do not request administrator rights or enable
+`SeDebugPrivilege`. The desktop does not depend on the API, and the API does not
+open or depend on the desktop.
 [SessionDock](https://github.com/Makmatoe/SessionDock) is a separate, optional
 client and is not bundled here.
 
@@ -62,21 +65,24 @@ running anything.
 
 - Run `desktop\HandleScope.exe` directly for interactive inspection. It is a
   portable application.
-- From a normal, non-administrator PowerShell window, run
-  `api\Install-HandleScopeApi.ps1 -StartNow -EnableAutostart -EnableSessionDock`
-  for the easiest complete setup. Omit either opt-in switch when it is not
-  wanted.
+- From a normal, non-administrator terminal, run
+  `api\HandleScope.Setup.exe install --start-now --enable-autostart --enable-sessiondock`
+  for the easiest complete setup. Omit any opt-in switch that is not wanted.
   The API is installed for the current user under
   `%LOCALAPPDATA%\Programs\HandleScope\Api`.
 
-The installer verifies the complete API inventory and every internal manifest
-hash, then removes inherited Windows download markers only from those verified
-installed copies. It does not weaken PowerShell execution policy or request UAC
-approval. Releases are intentionally not
+The native setup tool verifies the complete API inventory and every internal
+manifest hash, then removes inherited Windows download markers only from those
+verified installed copies. It does not launch PowerShell, change execution
+policy, or request UAC approval. Small source-only metadata streams added by an
+endpoint scanner are bounded and treated as untrusted; setup hashes and copies
+only unnamed file data and never carries a named stream into the installation.
+Releases are intentionally not
 Authenticode-signed because this project uses no paid certificate or signing
 service; authenticity instead comes from the GitHub release source, SHA-256
 manifest, and GitHub artifact attestation. Windows may therefore show
-**Unknown publisher** or a SmartScreen warning. See
+**Unknown publisher**, a SmartScreen warning, or a security-product reputation
+block. Do not disable protection or override an organization policy. See
 [`docs/INSTALL.md`](docs/INSTALL.md) for the full install, verification,
 SessionDock connection, update, and uninstall workflow.
 
@@ -112,10 +118,10 @@ v1 contract remains available; v2 is an additive, equivalent adapter. See
 complete client boundary.
 
 The recommended install command above explicitly opts SessionDock in. To enable
-the integration separately later, run:
+the integration separately later, run the installed native setup tool:
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\HandleScope\Api\Enable-SessionDockIntegration.ps1"
+& "$env:LOCALAPPDATA\Programs\HandleScope\Api\HandleScope.Setup.exe" enable-sessiondock
 ```
 
 That helper writes only `%LOCALAPPDATA%\SessionDock\handlescope.json` with the
@@ -125,7 +131,7 @@ older release; the legacy file is left untouched. A canonical setting always
 wins and is never replaced by legacy state. The helper does not start either
 application, copy a token, or modify account data, and it refuses to replace a
 non-minimal canonical setting unless the user explicitly re-runs it with
-`-Force`.
+`--force`.
 
 Starting with HandleScope v0.2.2, a compatible SessionDock release may also
 offer a version selector backed by its signed, rollback-resistant compatibility
@@ -137,13 +143,19 @@ updates a recommendation only; it never installs, bundles HandleScope, enables
 the integration, or downgrades an installed release. See the
 [complete managed-setup boundary](docs/integrations/sessiondock.md#user-control-boundary).
 
+SessionDock 2.9.0 and later may select HandleScope 0.3.x through the native
+setup capability after that separate release is published; SessionDock 2.8.x
+remains bound to its authenticated HandleScope 0.2.2 fallback.
+
 ## Repository layout
 
 | Path | Purpose |
 | --- | --- |
 | `HandleScope/` | WPF desktop inspector |
 | `HandleScope.Core/` | Windows handle and process engine |
-| `HandleScope.Api/` | Restricted local API and per-user lifecycle scripts |
+| `HandleScope.Api/` | Restricted local API and legacy-compatible lifecycle scripts |
+| `HandleScope.Setup/` | Native standard-user setup and lifecycle control |
+| `HandleScope.Setup.Tests/` | Native setup parser and safety regression harness |
 | `HandleScope.IntegrationTests/` | Controlled child-process harness |
 | `docs/` | Installation, security, release, and integration guidance |
 | `scripts/` | Repository, build, packaging, and release verification |
@@ -160,10 +172,11 @@ Run the complete local verification:
 .\scripts\Build.ps1 -CI
 ```
 
-This verifies repository hygiene, restores locked dependencies, builds all four
-projects with warnings treated as errors, and runs the controlled integration
-harness. The harness creates its own process, file, and named event; it must not
-be changed to target unrelated processes.
+This verifies repository hygiene, restores locked dependencies, builds all six
+projects with warnings treated as errors, and runs the native setup safety
+regressions plus the controlled integration harness. The integration harness
+creates its own process, file, and named event; it must not be changed to target
+unrelated processes.
 
 Use the skip switch only when a documentation or environment limitation makes
 the controlled harness inapplicable:

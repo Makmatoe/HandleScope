@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>HandleScope.Setup</AssemblyName>
+    <RootNamespace>HandleScope.Setup</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HandleScope.Core\HandleScope.Core.csproj" />
+  </ItemGroup>
+
+</Project>

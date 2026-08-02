@@ -6,6 +6,28 @@ Notable user-visible and security-relevant changes are documented here.
 
 - No changes yet.
 
+## 0.3.0 - 2026-08-02
+
+- Added `api\HandleScope.Setup.exe`, a standard-user native setup and lifecycle
+  entry point that does not depend on PowerShell script execution policy.
+- Made native `verify`, `install`, `start`, `stop`, `enable-sessiondock`, and
+  `uninstall` commands the documented path while retaining the PowerShell
+  lifecycle scripts as compatibility wrappers for existing automation.
+- Expanded the fixed API release inventory to include the native setup
+  executable and bound its byte length and SHA-256 digest into the release
+  manifest, `CONTENTS.sha256`, and SPDX SBOM.
+- Advanced the release and runtime manifests to schema version 2 and added the
+  `handlescope.setup.native.v1` capability so SessionDock can select a compatible
+  native or legacy adapter without guessing from product versions.
+- Published the setup executable without single-file compression to reduce
+  avoidable packed-binary antivirus heuristics. HandleScope remains unsigned,
+  so Windows reputation services or endpoint security may still warn or block;
+  users should verify the release and must not disable protection to install it.
+- Allowed strictly bounded source-only endpoint-security metadata streams so a
+  scanner-added stream does not invalidate otherwise unchanged release bytes.
+  Setup never trusts or copies named streams and still requires staged and
+  installed files to contain only their verified unnamed data.
+
 ## 0.2.2 - 2026-08-02
 
 - Preserved the exact five-field v1 discovery document, exact three-field v1
