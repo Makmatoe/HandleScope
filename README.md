@@ -1,200 +1,223 @@
 # HandleScope
 
-HandleScope is a Windows handle inspection tool with a narrowly scoped local
-automation API. It contains:
+HandleScope is a Windows x64 handle-inspection tool with two independent parts:
 
-- `HandleScope.exe`, a WPF browser for reviewing and closing named handles in
-  non-elevated processes owned by the current user in the current Windows
-  session;
-- `HandleScope.Api.exe`, an independent loopback API whose release policy can
-  close only Roblox's exact session singleton event;
-- `HandleScope.Setup.exe`, a native, fixed-command verifier and per-user
-  lifecycle tool that does not depend on PowerShell script execution;
-- `HandleScope.Core`, the shared Windows process and native-handle engine;
-- a controlled integration harness that operates only on a child process it
-  creates.
+- `desktop\HandleScope.exe`: a portable WPF browser for inspecting and closing
+  named handles in accessible, same-user processes;
+- `api\HandleScope.Api.exe`: a loopback API that can automate only HandleScope's
+  compiled Roblox singleton-event policy.
 
-The desktop, API, and setup executables run as the current standard user
-(`asInvoker`). They do not request administrator rights or enable
-`SeDebugPrivilege`. The desktop does not depend on the API, and the API does not
-open or depend on the desktop.
-[SessionDock](https://github.com/Makmatoe/SessionDock) is a separate, optional
-client and is not bundled here.
+`api\HandleScope.Setup.exe` is the recommended verifier, installer, and
+lifecycle tool. It is a native executable, so it works when PowerShell script
+execution is restricted. [SessionDock](https://github.com/Makmatoe/SessionDock)
+is separate and optional; HandleScope is not bundled with it.
 
-Process Explorer is an interactive Sysinternals application rather than a
-public automation API. HandleScope does not bundle or require Sysinternals. It
-discovers the Windows system handle table and uses the documented
-[`DuplicateHandle` close-source operation](https://learn.microsoft.com/windows/win32/api/handleapi/nf-handleapi-duplicatehandle).
+> [!CAUTION]
+> Closing a handle can crash a process, corrupt its state, or lose unsaved data.
+> Close only a handle whose purpose and impact you understand.
 
-## Safety first
+## Install the API
 
-Closing a handle can crash a target process, corrupt its state, or cause data
-loss. Keep unsaved work closed and act only on processes you own and can safely
-restart.
+Official releases support Windows 10 and 11 on x64, include their own .NET
+runtime, and run from a normal, non-administrator terminal.
 
-The desktop limits its process list to non-elevated processes owned by the same
-Windows user in the same interactive session. It blocks Windows System PID 4
-and its own process, pins the target process instance, rechecks the kernel-object
-identity before closing, and asks for confirmation. These controls reduce risk;
-they do not make arbitrary handle closure safe.
+1. Download the ZIP and its matching verification assets from the
+   [latest official release](https://github.com/Makmatoe/HandleScope/releases/latest),
+   never from an issue, chat attachment, mirror, or Actions artifact.
+2. Before running anything, use
+   [Verify a HandleScope download](docs/VERIFY_DOWNLOAD.md) to check GitHub
+   provenance and SHA-256 values.
+3. Extract the complete ZIP into a new, local, non-linked folder.
+4. Open the extracted `HandleScope-<version>-win-x64` folder in a normal
+   terminal and verify its fixed eleven-file API inventory:
 
-The local API is more restrictive. It accepts only the compiled
-`roblox-singleton-event-v1` policy: a trusted `RobloxPlayerBeta.exe` owned by
-the same user in the same session and the exact
-`\Sessions\<current-session>\BaseNamedObjects\ROBLOX_singletonEvent` event with
-access mask `0x001F0003`. Every close requires a successful dry run followed by
-an execution request with the identical selector and the dry run's random,
-single-use `planId` within five seconds.
+   ```powershell
+   .\api\HandleScope.Setup.exe verify
+   ```
 
-Windows does not expose an atomic compare-and-close operation, so a small race
-remains when a process rapidly recycles handles. Protected, elevated,
-cross-user, and cross-session targets are intentionally unavailable. Handle
-discovery also uses the internal `NtQuerySystemInformation` system-handle class,
-which Windows may change.
+5. Continue only if verification succeeds. Choose an install command:
 
-Read the [security policy](SECURITY.md), [privacy notice](PRIVACY.md), and
-[threat model](docs/THREAT_MODEL.md) before running or changing the project.
+   ```powershell
+   # Install and start now.
+   .\api\HandleScope.Setup.exe install --start-now
 
-## Install or run
+   # Also start at sign-in.
+   .\api\HandleScope.Setup.exe install --start-now --enable-autostart
 
-Official Windows x64 releases are self-contained and do not require a separate
-.NET installation. Download the complete ZIP, SPDX SBOM, and checksum file from
-the [latest GitHub release](https://github.com/Makmatoe/HandleScope/releases/latest), then verify them using
-[`docs/VERIFY_DOWNLOAD.md`](docs/VERIFY_DOWNLOAD.md), and extract it before
-running anything.
+   # Also explicitly opt SessionDock in.
+   .\api\HandleScope.Setup.exe install --start-now --enable-autostart --enable-sessiondock
+   ```
 
-- Run `desktop\HandleScope.exe` directly for interactive inspection. It is a
-  portable application.
-- From a normal, non-administrator terminal, run
-  `api\HandleScope.Setup.exe install --start-now --enable-autostart --enable-sessiondock`
-  for the easiest complete setup. Omit any opt-in switch that is not wanted.
-  The API is installed for the current user under
-  `%LOCALAPPDATA%\Programs\HandleScope\Api`.
+The API installs at `%LOCALAPPDATA%\Programs\HandleScope\Api`. Autostart uses a
+current-user, limited interactive-logon task. Setup never requests UAC, launches
+PowerShell, or changes execution policy. The full safety model is in
+[Install HandleScope](docs/INSTALL.md).
 
-The native setup tool verifies the complete API inventory and every internal
-manifest hash, then removes inherited Windows download markers only from those
-verified installed copies. It does not launch PowerShell, change execution
-policy, or request UAC approval. Small source-only metadata streams added by an
-endpoint scanner are bounded and treated as untrusted; setup hashes and copies
-only unnamed file data and never carries a named stream into the installation.
-Releases are intentionally not
-Authenticode-signed because this project uses no paid certificate or signing
-service; authenticity instead comes from the GitHub release source, SHA-256
-manifest, and GitHub artifact attestation. Windows may therefore show
-**Unknown publisher**, a SmartScreen warning, or a security-product reputation
-block. Do not disable protection or override an organization policy. See
-[`docs/INSTALL.md`](docs/INSTALL.md) for the full install, verification,
-SessionDock connection, update, and uninstall workflow.
+## Run the portable desktop
 
-## Desktop workflow
+The desktop does not require the API or installation:
 
-1. Start `desktop\HandleScope.exe` as your normal Windows user.
-2. Filter by executable name or PID and select an available process.
-3. Enter a handle-name fragment, or leave it empty to show resolvable named
-   handles.
-4. Select **Contains** or **Exact name**, then choose **Scan handles**.
-5. Review the object type, handle value, access mask, and resolved name.
-6. Close only a result whose impact you understand.
+```powershell
+.\desktop\HandleScope.exe
+```
 
-The **Copy recurring command** action is enabled only for the supported Roblox
-singleton event. Its output calls the installed API client with the exact
-process name, session-specific event path, object type, and access mask. It
-does not store a PID or raw handle value.
+Filter by executable name or PID, select a process, enter a handle-name fragment
+(or leave it empty), choose **Contains** or **Exact name**, and select **Scan
+handles**. Review every field and confirmation before closing anything.
 
-## Local API boundary
+Targets are limited to accessible, non-elevated, same-user/session processes;
+System PID 4 and HandleScope itself are blocked. **Copy recurring command** is
+available only for the supported Roblox singleton event.
 
-The API binds to an ephemeral IPv4 loopback port and publishes its current URL,
-process ID, and rotating 256-bit bearer token in the current user's protected
-`%LOCALAPPDATA%\HandleScope\connection.json`. Clients must read and validate
-that file for every operation; they must never hard-code the port, retain the
-token, follow redirects, use a proxy, or send the token off-machine.
+## Start, stop, update, or uninstall
 
-The API refuses to start under an elevated token, a Windows service account, or
-session 0. It exposes only health, strict Roblox singleton close, authenticated
-compatibility metadata, and authenticated shutdown endpoints. The exact legacy
-v1 contract remains available; v2 is an additive, equivalent adapter. See
-[`API.md`](API.md) and
-[`docs/integrations/sessiondock.md`](docs/integrations/sessiondock.md) for the
-complete client boundary.
+Use the installed native setup tool:
 
-The recommended install command above explicitly opts SessionDock in. To enable
-the integration separately later, run the installed native setup tool:
+```powershell
+$setup = "$env:LOCALAPPDATA\Programs\HandleScope\Api\HandleScope.Setup.exe"
+& $setup start
+& $setup stop
+```
+
+To update, download and verify the complete newer release, close the desktop,
+then run from the newer extracted folder:
+
+```powershell
+.\api\HandleScope.Setup.exe verify
+.\api\HandleScope.Setup.exe install --start-now
+```
+
+An existing autostart task stays enabled. Downgrades fail unless an intentional,
+verified recovery uses `--allow-downgrade`.
+
+To uninstall the API, its expected autostart task, and its runtime data:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\HandleScope\Api\HandleScope.Setup.exe" uninstall
+```
+
+Add `--keep-diagnostics` only to retain the bounded local log. Close the desktop
+and delete its extracted folder to remove it.
+
+## SessionDock integration and version selection
+
+Opt in during installation with `--enable-sessiondock`, or later with:
 
 ```powershell
 & "$env:LOCALAPPDATA\Programs\HandleScope\Api\HandleScope.Setup.exe" enable-sessiondock
 ```
 
-That helper writes only `%LOCALAPPDATA%\SessionDock\handlescope.json` with the
-local `enabled` flag. If the canonical file is absent, it can safely copy the
-minimal opt-in written to the former `%LOCALAPPDATA%\RobloxOne` location by an
-older release; the legacy file is left untouched. A canonical setting always
-wins and is never replaced by legacy state. The helper does not start either
-application, copy a token, or modify account data, and it refuses to replace a
-non-minimal canonical setting unless the user explicitly re-runs it with
-`--force`.
+This writes only `%LOCALAPPDATA%\SessionDock\handlescope.json`; it starts
+nothing and accesses no token or account data. A non-minimal setting is replaced
+only after review and an explicit `--force`.
 
-Starting with HandleScope v0.2.2, a compatible SessionDock release may also
-offer a version selector backed by its signed, rollback-resistant compatibility
-catalog. That catalog can choose only reviewed immutable assets and API adapters
-compiled into SessionDock. Every installation still requires a
-version-specific confirmation, runs only as the standard user, and clearly
-discloses immediate API startup and limited per-user autostart. Automatic mode
-updates a recommendation only; it never installs, bundles HandleScope, enables
-the integration, or downgrades an installed release. See the
-[complete managed-setup boundary](docs/integrations/sessiondock.md#user-control-boundary).
+- SessionDock 2.9.0 and later can keep the installed HandleScope version,
+  follow its signed recommendation, or select an exact reviewed version.
+  HandleScope 0.3.x uses the fixed `handlescope.setup.native.v1` adapter. A
+  recommendation never installs or downgrades; installation still requires a
+  version-specific confirmation.
+- SessionDock 2.8.x remains on its authenticated HandleScope 0.2.2 path.
+- HandleScope's desktop **SessionDock API** selector chooses only the protocol
+  preference—automatic/v2 or legacy v1—not the installed package version. Both
+  API families remain available, and the preference applies after API restart.
 
-SessionDock 2.9.0 and later may select HandleScope 0.3.x through the native
-setup capability after that separate release is published; SessionDock 2.8.x
-remains bound to its authenticated HandleScope 0.2.2 fallback.
+The signed catalog can select only reviewed immutable releases and compiled
+adapters; remote data cannot define paths, arguments, or API behavior. See the
+[SessionDock integration contract](docs/integrations/sessiondock.md).
 
-## Repository layout
+## Fix common installation problems
 
-| Path | Purpose |
-| --- | --- |
-| `HandleScope/` | WPF desktop inspector |
-| `HandleScope.Core/` | Windows handle and process engine |
-| `HandleScope.Api/` | Restricted local API and legacy-compatible lifecycle scripts |
-| `HandleScope.Setup/` | Native standard-user setup and lifecycle control |
-| `HandleScope.Setup.Tests/` | Native setup parser and safety regression harness |
-| `HandleScope.IntegrationTests/` | Controlled child-process harness |
-| `docs/` | Installation, security, release, and integration guidance |
-| `scripts/` | Repository, build, packaging, and release verification |
+### “Running scripts is disabled on this system”
 
-## Build and validate
+PowerShell blocked a legacy `.ps1` before it read any arguments. Stop invoking
+`Install-HandleScopeApi.ps1` and run the native executable:
 
-Requirements are Windows 10 or 11, PowerShell, and the .NET SDK selected by
-[`global.json`](global.json). The projects target .NET 10 for Windows and use
-no third-party NuGet packages.
+```powershell
+.\api\HandleScope.Setup.exe verify
+.\api\HandleScope.Setup.exe install --start-now --enable-autostart
+```
 
-Run the complete local verification:
+`-ExecutionPolicy` is a `powershell.exe` startup option, not a standalone
+command or installer argument. Appending `-ExecutionPolicy Bypass`,
+`--ExecutionPolicy`, or `--ExecutionBypass` cannot make a blocked script start.
+No execution-policy change is needed for native setup.
+
+The seven `.ps1` files remain for backwards compatibility, but policy can still
+block them. Use `HandleScope.Setup.exe` for new automation. For verified 0.1.x
+or 0.2.x recovery, follow the
+[legacy guidance](docs/INSTALL.md#legacy-powershell-compatibility); never use
+`Bypass`.
+
+### The browser says “Virus scan failed”
+
+No HandleScope code has run. The downloading device's browser/security-product
+scan failed or refused the file; this is separate from PowerShell policy. The
+same asset can work on one PC and fail on another because their security
+products, policies, reputation state, or scanner health differ.
+
+1. Confirm the canonical GitHub release URL.
+2. Check browser download details and Windows Security protection history.
+3. Update security intelligence and follow normal remediation guidance.
+4. On a managed device, give the administrator the asset name and SHA-256.
+
+Do not disable antivirus, SmartScreen, Smart App Control, WDAC, AppLocker, or
+organization policy, and do not add a broad exclusion.
+
+### “Unknown publisher,” a security block, or failed verification
+
+HandleScope is intentionally not Authenticode-signed because the project uses
+no paid certificate or signing service. GitHub attestations and hashes verify
+the published bytes; they do not create publisher reputation or override device
+policy. Follow the [verification guide](docs/VERIFY_DOWNLOAD.md) and the device
+owner's normal approval process.
+
+If native `verify` fails, stop. Re-download, re-verify, and extract into a new
+empty folder; never move individual API files, regenerate `CONTENTS.sha256`, or
+mix versions. For an old `HandleScope Local API` task, use its verified matching
+uninstaller or remove only the exact confirmed task.
+
+For startup failures, run the installed `start` command and follow its recovery
+message. The bounded log is `%LOCALAPPDATA%\HandleScope\api.log`. Never share
+`connection.json`; it contains the live bearer token.
+
+## Security and privacy
+
+The desktop, API, and setup tool run as the current standard user (`asInvoker`),
+do not enable `SeDebugPrivilege`, and do not request administrator rights.
+
+The API accepts only `roblox-singleton-event-v1`: the exact current-session
+`ROBLOX_singletonEvent` with access `0x001F0003` in a trusted, same-user/session
+`RobloxPlayerBeta.exe`. A close requires a dry run and the identical request
+with its single-use plan ID within five seconds.
+
+The API binds to an ephemeral IPv4 loopback port and stores its rotating 256-bit
+token in protected `%LOCALAPPDATA%\HandleScope\connection.json`. It refuses
+elevated, service-account, and session-0 execution. HandleScope has no telemetry,
+analytics, advertising, crash upload, cloud sync, or silent updater.
+
+Windows has no atomic compare-and-close operation, so a small handle-recycling
+race remains. Read [Security](SECURITY.md), [Privacy](PRIVACY.md), the
+[threat model](docs/THREAT_MODEL.md), and the [API reference](API.md) before
+integrating or changing the project.
+
+## Build and test
+
+Source work requires Windows, PowerShell, and the exact .NET SDK in
+[`global.json`](global.json). The six .NET 10 Windows projects have no
+third-party NuGet package references. Run the complete local gate:
 
 ```powershell
 .\scripts\Build.ps1 -CI
 ```
 
-This verifies repository hygiene, restores locked dependencies, builds all six
-projects with warnings treated as errors, and runs the native setup safety
-regressions plus the controlled integration harness. The integration harness
-creates its own process, file, and named event; it must not be changed to target
-unrelated processes.
-
-Use the skip switch only when a documentation or environment limitation makes
-the controlled harness inapplicable:
-
-```powershell
-.\scripts\Build.ps1 -CI -SkipControlledIntegration
-```
-
-Release publication is fail-closed: it requires a version-matched annotated tag
-at protected `main`, pinned CI actions, locked restore, the controlled test
-harness, exact file inventories, checksums, an SPDX SBOM, and GitHub build
-provenance. No certificate, paid signing service, or repository secret is
-required. HandleScope has no silent in-app updater; users choose when to
-download, verify, and install a release. The desktop API selector changes only
-the protocol preference advertised after restart and keeps v1 and v2 available.
+It checks hygiene and PowerShell compatibility, restores locked dependencies,
+builds with warnings as errors, and runs setup tests plus a controlled harness
+that touches only its own child process, file, and event. Use
+`-SkipControlledIntegration` only for a documentation/environment limitation.
+See [Releasing HandleScope](docs/RELEASING.md) for publication gates.
 
 ## License
 
 HandleScope is available under the [MIT License](LICENSE.md). Bundled .NET
-runtime components retain their own terms, included in every release and
-summarized in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+runtime components retain their own terms, summarized in
+[Third-party notices](THIRD_PARTY_NOTICES.md).
