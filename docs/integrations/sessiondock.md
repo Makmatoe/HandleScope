@@ -29,7 +29,7 @@ action is expected to run. HandleScope remains optional and SessionDock must
 never embed its files, elevate it, uninstall it, downgrade it, silently change
 it, or make a Roblox launch depend on it.
 
-Starting with HandleScope v0.2.1, a compatible release published from the
+Starting with HandleScope v0.2.2, a compatible release published from the
 canonical `Makmatoe/SessionDock` repository may dynamically select among
 reviewed HandleScope releases only when all of these controls are present:
 

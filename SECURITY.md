@@ -41,7 +41,7 @@ able to read the token and request the one allowed Roblox operation. Closing the
 allowed event may destabilize Roblox. Review the complete
 [`threat model`](docs/THREAT_MODEL.md) before integrating the API.
 
-HandleScope v0.2.1 also defines a dynamic but constrained delivery boundary for
+HandleScope v0.2.2 also defines a dynamic but constrained delivery boundary for
 compatible SessionDock releases. SessionDock may select only releases whose
 package, checksum, release manifest, installed executable, protocol contracts,
 capabilities, and SessionDock version range are bound by its signed,

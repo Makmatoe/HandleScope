@@ -6,7 +6,7 @@ Notable user-visible and security-relevant changes are documented here.
 
 - No changes yet.
 
-## 0.2.1 - 2026-08-02
+## 0.2.2 - 2026-08-02
 
 - Preserved the exact five-field v1 discovery document, exact three-field v1
   health response, and all v1 close/shutdown behavior for existing clients.
@@ -25,13 +25,23 @@ Notable user-visible and security-relevant changes are documented here.
   revised ten-file installed API inventory.
 - Reworked installed-runtime manifest verification into explicit typed checks
   that behave consistently in Windows PowerShell and PowerShell 7 release jobs.
+- Canonicalized release source timestamps as invariant UTC round-trip strings
+  and made independent verification inspect the raw JSON text, preventing
+  PowerShell 7 date coercion from masking a non-portable public manifest.
+
+## 0.2.1 - 2026-08-02
+
+- The package and checksum assets were published and remain immutable, but
+  PowerShell 7 serialized the external manifest timestamp using runner locale
+  formatting. SessionDock correctly rejects that non-canonical manifest;
+  0.2.2 supersedes this release for managed compatibility.
 
 ## 0.2.0 - 2026-08-02
 
 - The tag was validated and built, but its publication failed closed during
   independent installed-runtime manifest verification. No 0.2.0 release or
-  assets were published; 0.2.1 contains the same reviewed feature set plus the
-  release-verifier correction.
+  assets were published. The reviewed feature set continued through 0.2.1 and
+  is delivered for managed SessionDock compatibility by 0.2.2.
 
 ## 0.1.4 - 2026-08-02
 

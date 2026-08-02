@@ -70,6 +70,41 @@ function Write-Utf8NoBom {
         [Text.UTF8Encoding]::new($false))
 }
 
+function Get-CanonicalJsonUtcTimestamp {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Json,
+
+        [Parameter(Mandatory)]
+        [string]$PropertyName,
+
+        [Parameter(Mandatory)]
+        [string]$Description
+    )
+
+    $pattern = '(?m)^\s*"' + [regex]::Escape($PropertyName) +
+        '"\s*:\s*"(?<value>[^"\\\r\n]+)"\s*,?\s*$'
+    $matches = [regex]::Matches($Json, $pattern)
+    if ($matches.Count -ne 1) {
+        throw "$Description must contain exactly one unescaped JSON timestamp string."
+    }
+    $value = $matches[0].Groups['value'].Value
+    $timestamp = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParseExact(
+            $value,
+            'O',
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind,
+            [ref]$timestamp) -or
+        $timestamp.Offset -ne [TimeSpan]::Zero -or
+        $value -cne $timestamp.ToUniversalTime().ToString(
+            'O',
+            [Globalization.CultureInfo]::InvariantCulture)) {
+        throw "$Description timestamp is not canonical UTC round-trip text."
+    }
+    return $value
+}
+
 function Get-StringSha1 {
     param(
         [Parameter(Mandatory)]
@@ -213,7 +248,12 @@ foreach ($requiredPath in @($metadataPath, $catalogPath, $bundleRoot)) {
     }
 }
 
-$metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
+$metadataJson = [IO.File]::ReadAllText($metadataPath)
+$metadataSourceTimestamp = Get-CanonicalJsonUtcTimestamp `
+    -Json $metadataJson `
+    -PropertyName 'sourceTimestamp' `
+    -Description 'Release metadata'
+$metadata = $metadataJson | ConvertFrom-Json
 $requiredMetadataFields = @(
     'schemaVersion',
     'product',
@@ -245,8 +285,9 @@ if ($metadata.schemaVersion -ne 1 -or
     throw 'Release metadata identity, version, runtime, or source revision is invalid.'
 }
 $sourceTimestamp = [DateTimeOffset]::MinValue
-if (-not [DateTimeOffset]::TryParse(
-        [string]$metadata.sourceTimestamp,
+if (-not [DateTimeOffset]::TryParseExact(
+        $metadataSourceTimestamp,
+        'O',
         [Globalization.CultureInfo]::InvariantCulture,
         [Globalization.DateTimeStyles]::RoundtripKind,
         [ref]$sourceTimestamp)) {
@@ -597,7 +638,7 @@ $releaseManifest = [ordered]@{
     tag = "v$version"
     runtime = 'win-x64'
     sourceRevision = [string]$metadata.sourceRevision
-    sourceTimestamp = [string]$metadata.sourceTimestamp
+    sourceTimestamp = $metadataSourceTimestamp
     discoveryApiVersion = 'v1'
     supportedApiVersions = @('v1', 'v2')
     preferredApiVersion = 'v2'
