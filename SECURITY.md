@@ -16,15 +16,26 @@ signing service. They include an exact portable ZIP, SHA-256 manifests, an SPDX
 SBOM, an immutable compatibility manifest, and GitHub artifact attestations.
 Verify those materials using
 [`docs/VERIFY_DOWNLOAD.md`](docs/VERIFY_DOWNLOAD.md); Windows may correctly
-label the binaries as **Unknown publisher**. The application has no
+label the binaries as **Unknown publisher**, and SmartScreen, Smart App Control,
+or antivirus reputation policy may warn or refuse execution. Verification does
+not grant permission to disable those controls. The application has no
 self-updater, so installing a newer version is an explicit user action.
 
 ## Current security boundary
 
-The desktop and headless API run as the current standard user (`asInvoker`).
-They do not request elevation or enable `SeDebugPrivilege`. The desktop limits
-targets to non-elevated processes owned by the same user in the same Windows
-session.
+The desktop, headless API, and native setup tool run as the current standard
+user (`asInvoker`). They do not request elevation or enable `SeDebugPrivilege`.
+The setup tool accepts only its fixed local lifecycle commands, verifies the
+complete release inventory before installation, and does not launch PowerShell
+or change execution policy. The desktop limits targets to non-elevated processes
+owned by the same user in the same Windows session.
+
+Security products can attach named data streams to downloaded files. Native
+setup accepts only a small, bounded set of well-formed source-only metadata
+streams, validates `Zone.Identifier` separately, and treats every named stream
+as untrusted. Integrity hashes and installation copies use only the locked
+unnamed data stream. Named streams are never copied from the release; staged and
+installed files must contain only unnamed data or setup fails closed.
 
 The API additionally refuses elevated, service-account, and session-0
 execution. It listens only on IPv4 loopback, authenticates protected endpoints
@@ -41,16 +52,22 @@ able to read the token and request the one allowed Roblox operation. Closing the
 allowed event may destabilize Roblox. Review the complete
 [`threat model`](docs/THREAT_MODEL.md) before integrating the API.
 
-HandleScope v0.2.2 also defines a dynamic but constrained delivery boundary for
+HandleScope v0.2.2 defined a dynamic but constrained delivery boundary for
 compatible SessionDock releases. SessionDock may select only releases whose
-package, checksum, release manifest, installed executable, protocol contracts,
-capabilities, and SessionDock version range are bound by its signed,
-rollback-resistant compatibility catalog. A managed setup is authorized only
-after a dedicated, version-specific user confirmation and complete verification
-of the selected immutable release. It must run the unmodified installer as the
+package, checksum, release manifest, installed API and native setup executable
+identities, protocol contracts, capabilities, and SessionDock version range are
+bound by its signed, rollback-resistant compatibility catalog. SessionDock
+2.9.0 and later can use HandleScope v0.3.0's capability to run the locked native
+setup executable directly after that separate release is published; only the
+separately compiled v0.1.4/v0.2.2 adapter may use
+process-scoped `RemoteSigned` for a verified legacy script. A managed setup is
+authorized only after a dedicated, version-specific user confirmation and
+complete verification of the selected immutable release. It must run as the
 standard user, verify before installing, disclose immediate startup and limited
 autostart, and leave the SessionDock opt-in separate. Catalog metadata cannot
-define executable API behavior; only code-reviewed local adapters can do so.
+define executable paths, arguments, or API behavior; only code-reviewed local
+adapters can do so.
+
 Elevation, silent lifecycle changes, mutable unauthenticated downloads,
 downgrades, `Bypass`, `Unrestricted`, saved policy changes, and Group Policy
 overrides remain outside the supported boundary.

@@ -9,8 +9,9 @@ not Authenticode-signed. The release workflow instead produces an exact
 portable ZIP, a SHA-256 manifest, an SPDX 2.3 SBOM, an immutable compatibility
 manifest, and GitHub artifact attestations. It uses no certificate, external
 signing account, paid service, long-lived credential, or repository secret.
-Users must verify downloads and may see **Unknown publisher** or SmartScreen
-warnings on Windows.
+Users must verify downloads and may see **Unknown publisher**, SmartScreen, or
+security-product reputation warnings on Windows. Release material must never
+recommend disabling those controls.
 
 ## One-time repository configuration
 
@@ -50,9 +51,14 @@ reviewer. The environment requires no variables and no secrets.
      -Version <version>
    ```
 
-5. Review the exact staged inventory and test both applications on a disposable
-   Windows x64 machine. Destructive tests may target only test-owned processes
-   and handles.
+5. Review the exact staged inventory and test the desktop, API, and every fixed
+   native setup command on a disposable standard-user Windows x64 machine. Test
+   with the normal PowerShell default resolving to `Restricted`, with and without
+   Mark-of-the-Web, and without antivirus exclusions. Exercise a bounded
+   scanner-style named metadata stream plus malformed, oversized, excessive,
+   and residual-stream cases; confirm only source metadata is accepted and no
+   named stream reaches staging or installation. Destructive tests may target
+   only test-owned processes and handles.
 6. Merge through protected `main`. From a clean, synchronized `main`, create
    and push one annotated tag:
 
@@ -66,21 +72,28 @@ reviewer. The environment requires no variables and no secrets.
 
 ### SessionDock managed-setup contract
 
-HandleScope v0.2.2 introduces an immutable per-release compatibility manifest;
+HandleScope v0.2.2 introduced an immutable per-release compatibility manifest;
 it does not grant a floating authorization to future HandleScope or SessionDock
 versions. Before a compatible SessionDock release adds a catalog entry, verify
 the manifest against the public assets, then review SessionDock's signed catalog
 sequence and validity, compatible version range, compiled protocol adapters,
 confirmation, canonical asset URLs, fixed sizes and SHA-256 hashes, redirect
 allowlist, streamed bounds, checksum parsing, ZIP and internal inventory
-validation, installer arguments, PowerShell policy scope, standard-user token,
-cancellation behavior, downgrade refusal, and separate integration opt-in against
+validation, compiled setup-adapter arguments, standard-user token, cancellation
+behavior, downgrade refusal, and separate integration opt-in against
 [`integrations/sessiondock.md`](integrations/sessiondock.md).
 
+For HandleScope 0.3.0 and later, require release-manifest schema v2, the exact
+`setupExecutable` identity, and `handlescope.setup.native.v1`. The compiled
+SessionDock native adapter must run `verify` and then the separately confirmed
+`install --start-now --enable-autostart` directly, without a shell or
+PowerShell. Process-scoped `RemoteSigned` remains only in the compiled legacy
+v0.1.4/v0.2.2 adapter and cannot override Group Policy.
+
 Record the new HandleScope tag, protected-main source commit, ZIP, checksum,
-release-manifest asset names, lengths, and SHA-256 hashes, extracted API
-executable length and SHA-256 hash, protocol/capability lists, SBOM identity,
-release immutability, and successful artifact attestation verification. A
+release-manifest asset names, lengths, and SHA-256 hashes, extracted API and
+native setup executable lengths and SHA-256 hashes, protocol/capability lists,
+SBOM identity, release immutability, and successful artifact attestation. A
 SessionDock catalog may be updated only after the new HandleScope release is
 public and these values have been independently checked. Never revise the
 contract of an existing immutable release to authorize a client retroactively.
@@ -95,11 +108,12 @@ The tag-triggered workflow:
 
 1. verifies the repository, annotated tag, project version, release notes, and
    exact protected-main tip;
-2. builds and runs the controlled integration harness with the pinned .NET SDK,
-   locked restore, and NuGet.org as the only package source;
-3. publishes two compressed, self-contained Windows x64 single-file
-   executables without debug symbols and records their embedded .NET runtime
-   components;
+2. builds and runs the native setup safety regressions and controlled integration
+   harness with the pinned .NET SDK, locked restore, and NuGet.org as the only
+   package source;
+3. publishes the compressed desktop and API plus an explicitly uncompressed
+   native setup executable as self-contained Windows x64 single files without
+   debug symbols, and records their embedded .NET runtime components;
 4. enforces an exact release inventory, creates `CONTENTS.sha256`, the ZIP,
    external SHA-256 manifest, SPDX SBOM, and immutable compatibility manifest,
    then verifies them independently;

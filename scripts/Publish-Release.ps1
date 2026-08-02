@@ -109,7 +109,9 @@ function Assert-VersionNeutralVerificationGuide {
             '$version = $Matches.version',
             '$assetBaseName = "HandleScope-$version-win-x64"',
             'gh attestation verify $zip.FullName',
-            'gh release verify-asset $tag $zip.FullName')) {
+            'gh release verify-asset $tag $zip.FullName',
+            'HandleScope.Setup.exe',
+            '& $setup verify')) {
         if ($guide.IndexOf(
                 $requiredControl,
                 [StringComparison]::Ordinal) -lt 0) {
@@ -174,7 +176,8 @@ try {
 
     $desktopProject = Join-Path $repositoryRoot 'HandleScope\HandleScope.csproj'
     $apiProject = Join-Path $repositoryRoot 'HandleScope.Api\HandleScope.Api.csproj'
-    foreach ($project in @($desktopProject, $apiProject)) {
+    $setupProject = Join-Path $repositoryRoot 'HandleScope.Setup\HandleScope.Setup.csproj'
+    foreach ($project in @($desktopProject, $apiProject, $setupProject)) {
         Invoke-DotNet -Arguments @(
             'restore',
             $project,
@@ -197,26 +200,36 @@ try {
         '-p:DebugSymbols=false',
         '-p:PublishSingleFile=true',
         '-p:IncludeNativeLibrariesForSelfExtract=true',
-        '-p:EnableCompressionInSingleFile=true',
         '-p:SatelliteResourceLanguages=en-US',
         '-p:PublishTrimmed=false',
         '-p:UseAppHost=true'
     )
 
     $desktopPublishArguments = @('publish', $desktopProject) +
-        $commonPublishArguments + @('--output', $desktopRoot)
+        $commonPublishArguments + @(
+            '-p:EnableCompressionInSingleFile=true',
+            '--output', $desktopRoot
+        )
     $apiPublishArguments = @('publish', $apiProject) +
         $commonPublishArguments + @(
+            '-p:EnableCompressionInSingleFile=true',
             '-p:IsTransformWebConfigDisabled=true',
             '-p:StaticWebAssetsEnabled=false',
             '--output', $apiRoot
         )
+    $setupPublishArguments = @('publish', $setupProject) +
+        $commonPublishArguments + @(
+            '-p:EnableCompressionInSingleFile=false',
+            '--output', $apiRoot
+        )
     Invoke-DotNet -Arguments $desktopPublishArguments
     Invoke-DotNet -Arguments $apiPublishArguments
+    Invoke-DotNet -Arguments $setupPublishArguments
 
     $expectedPublishedFiles = @(
         (Join-Path $desktopRoot 'HandleScope.exe'),
-        (Join-Path $apiRoot 'HandleScope.Api.exe')
+        (Join-Path $apiRoot 'HandleScope.Api.exe'),
+        (Join-Path $apiRoot 'HandleScope.Setup.exe')
     )
     foreach ($expectedPublishedFile in $expectedPublishedFiles) {
         if (-not (Test-Path -LiteralPath $expectedPublishedFile -PathType Leaf)) {
@@ -234,7 +247,8 @@ try {
         [StringComparer]::Ordinal)
     $dependencyManifests = @(
         (Join-Path $repositoryRoot 'HandleScope\bin\Release\net10.0-windows\win-x64\HandleScope.deps.json'),
-        (Join-Path $repositoryRoot 'HandleScope.Api\bin\Release\net10.0-windows\win-x64\HandleScope.Api.deps.json')
+        (Join-Path $repositoryRoot 'HandleScope.Api\bin\Release\net10.0-windows\win-x64\HandleScope.Api.deps.json'),
+        (Join-Path $repositoryRoot 'HandleScope.Setup\bin\Release\net10.0-windows\win-x64\HandleScope.Setup.deps.json')
     )
     foreach ($dependencyFile in $dependencyManifests) {
         if (-not (Test-Path -LiteralPath $dependencyFile -PathType Leaf)) {
@@ -248,7 +262,11 @@ try {
             }
             $libraryName = $library.Name.Substring(0, $separator)
             $libraryVersion = $library.Name.Substring($separator + 1)
-            if ($libraryName -in @('HandleScope', 'HandleScope.Api', 'HandleScope.Core')) {
+            if ($libraryName -in @(
+                    'HandleScope',
+                    'HandleScope.Api',
+                    'HandleScope.Core',
+                    'HandleScope.Setup')) {
                 continue
             }
             if (-not $libraryName.StartsWith(
@@ -322,7 +340,7 @@ try {
         sourceTimestamp = $sourceTimestamp
     }
     $runtimeManifest = [ordered]@{
-        schemaVersion = 1
+        schemaVersion = 2
         product = 'HandleScope.Api'
         repository = 'Makmatoe/HandleScope'
         version = $Version
@@ -338,7 +356,8 @@ try {
             'handlescope.http.v1',
             'handlescope.http.v2',
             'handlescope.plan.single-use.v1',
-            'handlescope.policy.roblox-singleton-event.v1'
+            'handlescope.policy.roblox-singleton-event.v1',
+            'handlescope.setup.native.v1'
         )
     }
     Write-Utf8NoBom `
@@ -408,6 +427,7 @@ try {
     $expectedFirstPartyFiles = @(
         'bundle/desktop/HandleScope.exe',
         'bundle/api/HandleScope.Api.exe',
+        'bundle/api/HandleScope.Setup.exe',
         'bundle/api/HandleScope.runtime.json'
     ) + @(
         $lifecycleScripts |
@@ -429,6 +449,7 @@ try {
         'THIRD_PARTY_NOTICES.md',
         'api/API.md',
         'api/HandleScope.Api.exe',
+        'api/HandleScope.Setup.exe',
         'api/HandleScope.runtime.json',
         'api/Enable-SessionDockIntegration.ps1',
         'api/HandleScope.ScriptCommon.ps1',

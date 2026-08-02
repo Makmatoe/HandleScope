@@ -166,7 +166,8 @@ public static class ApiHost
                     "handlescope.http.v1",
                     "handlescope.http.v2",
                     "handlescope.plan.single-use.v1",
-                    "handlescope.policy.roblox-singleton-event.v1"
+                    "handlescope.policy.roblox-singleton-event.v1",
+                    "handlescope.setup.native.v1"
                 }
             }));
         app.MapPost("/v1/handles/close", CloseHandlesAsync);

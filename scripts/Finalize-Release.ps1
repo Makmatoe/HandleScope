@@ -307,7 +307,8 @@ finally {
 
 $expectedPeFiles = @(
     'bundle/desktop/HandleScope.exe',
-    'bundle/api/HandleScope.Api.exe'
+    'bundle/api/HandleScope.Api.exe',
+    'bundle/api/HandleScope.Setup.exe'
 )
 $expectedScriptFiles = @(
     'bundle/api/Enable-SessionDockIntegration.ps1',
@@ -381,9 +382,10 @@ $expectedBundleFiles = @(
     'THIRD_PARTY_NOTICES.md',
     'api/API.md',
     'api/HandleScope.Api.exe',
+    'api/HandleScope.Setup.exe',
     'api/HandleScope.runtime.json',
-        'api/Enable-SessionDockIntegration.ps1',
-        'api/HandleScope.ScriptCommon.ps1',
+    'api/Enable-SessionDockIntegration.ps1',
+    'api/HandleScope.ScriptCommon.ps1',
     'api/Install-HandleScopeApi.ps1',
     'api/Invoke-HandleScopeClose.ps1',
     'api/Start-HandleScopeApi.ps1',
@@ -630,8 +632,9 @@ Write-Utf8NoBom -Path $sbomPath -Value (($spdx | ConvertTo-Json -Depth 12) + "`n
 $releaseManifestName = "$assetBaseName.release.json"
 $releaseManifestPath = Join-Path $outputRoot $releaseManifestName
 $apiExecutablePath = Join-Path $bundleRoot 'api\HandleScope.Api.exe'
+$setupExecutablePath = Join-Path $bundleRoot 'api\HandleScope.Setup.exe'
 $releaseManifest = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     product = 'HandleScope'
     repository = 'Makmatoe/HandleScope'
     version = $version
@@ -647,7 +650,8 @@ $releaseManifest = [ordered]@{
         'handlescope.http.v1',
         'handlescope.http.v2',
         'handlescope.plan.single-use.v1',
-        'handlescope.policy.roblox-singleton-event.v1'
+        'handlescope.policy.roblox-singleton-event.v1',
+        'handlescope.setup.native.v1'
     )
     package = [ordered]@{
         name = $zipName
@@ -663,6 +667,11 @@ $releaseManifest = [ordered]@{
         path = 'api/HandleScope.Api.exe'
         size = [IO.FileInfo]::new($apiExecutablePath).Length
         sha256 = (Get-FileHash -LiteralPath $apiExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    setupExecutable = [ordered]@{
+        path = 'api/HandleScope.Setup.exe'
+        size = [IO.FileInfo]::new($setupExecutablePath).Length
+        sha256 = (Get-FileHash -LiteralPath $setupExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant()
     }
 }
 Write-Utf8NoBom `

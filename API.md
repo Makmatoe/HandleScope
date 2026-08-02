@@ -13,10 +13,10 @@ same user session.
 ## Install and lifecycle
 
 Extract the complete official release ZIP. From a normal, non-administrator
-PowerShell window in the extracted `api` directory, run:
+terminal in the extracted `api` directory, run the native setup tool:
 
 ```powershell
-.\Install-HandleScopeApi.ps1 -StartNow -EnableAutostart -EnableSessionDock
+.\HandleScope.Setup.exe install --start-now --enable-autostart --enable-sessiondock
 ```
 
 After the release ZIP's GitHub attestation and external SHA-256 checksum have
@@ -28,28 +28,49 @@ hashes, then installs the API for the current user at:
 ```
 
 Autostart and SessionDock integration are disabled by default. Omit either
-corresponding switch when that opt-in is not wanted. To install and start only:
+corresponding option when that opt-in is not wanted. To install and start only:
 
 ```powershell
-.\Install-HandleScopeApi.ps1 -StartNow
+.\HandleScope.Setup.exe install --start-now
 ```
 
-The installed lifecycle scripts are:
+Use the installed native setup tool for lifecycle operations:
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\HandleScope\Api\Start-HandleScopeApi.ps1"
-& "$env:LOCALAPPDATA\Programs\HandleScope\Api\Stop-HandleScopeApi.ps1"
-& "$env:LOCALAPPDATA\Programs\HandleScope\Api\Enable-SessionDockIntegration.ps1"
-& "$env:LOCALAPPDATA\Programs\HandleScope\Api\Uninstall-HandleScopeApi.ps1"
+$setup = "$env:LOCALAPPDATA\Programs\HandleScope\Api\HandleScope.Setup.exe"
+& $setup start
+& $setup stop
+& $setup enable-sessiondock
+& $setup uninstall
 ```
 
-Do not use `-ExecutionPolicy Bypass`, run the scripts as administrator, or move
-individual files out of the release bundle. Verify and unblock the downloaded
-ZIP before extraction, or follow your organization's PowerShell policy. See
-[`docs/INSTALL.md`](docs/INSTALL.md) for update and uninstall guidance.
-After verifying each installed file against the release manifest, the installer
-removes its inherited Windows download marker so installed scripts work under
-normal `RemoteSigned` policy without weakening that policy.
+The seven PowerShell files remain for older automation. The five lifecycle
+entry points are exact native-command compatibility wrappers; the shared client
+code and manual close client remain unchanged. They are not the recommended
+setup interface. PowerShell's `Restricted` policy blocks scripts even after
+Mark-of-the-Web is removed. The native tool works without changing or bypassing
+that policy. Never use
+`-ExecutionPolicy Bypass`, disable antivirus or SmartScreen, run setup as
+administrator, or move individual files out of the release bundle. See
+[`docs/INSTALL.md`](docs/INSTALL.md) for complete verification, policy, update,
+and uninstall guidance.
+
+The native grammar is case-sensitive, rejects duplicate or unknown options,
+and accepts no arbitrary executable or filesystem path:
+
+```text
+verify
+install [--start-now] [--enable-autostart] [--enable-sessiondock] [--allow-downgrade]
+start
+stop
+enable-sessiondock [--force]
+uninstall [--keep-diagnostics]
+```
+
+Exit code `0` means success, `2` means invalid command grammar, `3` means a
+security, integrity, identity, or environment refusal, and `4` means a trusted
+lifecycle or Windows operation failed. Callers must treat every other result as
+failure and must not retry by weakening policy.
 
 ## Connection discovery
 
@@ -85,13 +106,13 @@ a stale file is not proof that the API is available.
 
 ## Compatibility negotiation
 
-HandleScope 0.2.2 adds authenticated `GET /v1/metadata`. This additive endpoint
+HandleScope 0.2.2 added authenticated `GET /v1/metadata`. This additive endpoint
 does not change discovery or the legacy health document. Its exact response is:
 
 ```json
 {
   "schemaVersion": 1,
-  "productVersion": "0.2.2",
+  "productVersion": "0.3.0",
   "discoveryApiVersion": "v1",
   "supportedApiVersions": ["v1", "v2"],
   "preferredApiVersion": "v2",
@@ -100,7 +121,8 @@ does not change discovery or the legacy health document. Its exact response is:
     "handlescope.http.v1",
     "handlescope.http.v2",
     "handlescope.plan.single-use.v1",
-    "handlescope.policy.roblox-singleton-event.v1"
+    "handlescope.policy.roblox-singleton-event.v1",
+    "handlescope.setup.native.v1"
   ]
 }
 ```
@@ -288,12 +310,13 @@ usable when HandleScope is absent or denies the request.
 The complete client boundary is in
 [`docs/integrations/sessiondock.md`](docs/integrations/sessiondock.md).
 
-Passing `-EnableSessionDock` to the installer is the simplest explicit opt-in.
-After installation, a user can also enable SessionDock's side of that boundary
-separately without copying a token or endpoint:
+Passing `--enable-sessiondock` to native setup's `install` command is the
+simplest explicit opt-in. After installation, a user can also enable
+SessionDock's side of that boundary separately without copying a token or
+endpoint:
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\HandleScope\Api\Enable-SessionDockIntegration.ps1"
+& "$env:LOCALAPPDATA\Programs\HandleScope\Api\HandleScope.Setup.exe" enable-sessiondock
 ```
 
 The helper writes only `%LOCALAPPDATA%\SessionDock\handlescope.json` with
@@ -301,4 +324,4 @@ The helper writes only `%LOCALAPPDATA%\SessionDock\handlescope.json` with
 former `%LOCALAPPDATA%\RobloxOne\handlescope.json` only when that legacy file is
 the minimal enabled opt-in. It never deletes legacy data, starts either
 application, or lets legacy state overwrite a canonical setting. Replacing an
-existing non-minimal canonical setting requires explicit `-Force`.
+existing non-minimal canonical setting requires explicit `--force`.

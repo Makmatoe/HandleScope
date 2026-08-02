@@ -1,6 +1,8 @@
 <Solution>
   <Project Path="HandleScope.Core/HandleScope.Core.csproj" />
   <Project Path="HandleScope.Api/HandleScope.Api.csproj" />
+  <Project Path="HandleScope.Setup/HandleScope.Setup.csproj" />
+  <Project Path="HandleScope.Setup.Tests/HandleScope.Setup.Tests.csproj" />
   <Project Path="HandleScope/HandleScope.csproj" />
   <Project Path="HandleScope.IntegrationTests/HandleScope.IntegrationTests.csproj" />
 </Solution>

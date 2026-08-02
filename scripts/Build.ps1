@@ -16,6 +16,9 @@ $solutionPath = Join-Path $repositoryRoot 'HandleScope.slnx'
 $integrationProject = Join-Path `
     $repositoryRoot `
     'HandleScope.IntegrationTests\HandleScope.IntegrationTests.csproj'
+$setupTestsProject = Join-Path `
+    $repositoryRoot `
+    'HandleScope.Setup.Tests\HandleScope.Setup.Tests.csproj'
 $powerShellCompatibilityTest = Join-Path `
     $repositoryRoot `
     'scripts\Test-PowerShellCompatibility.ps1'
@@ -77,6 +80,15 @@ try {
             'run'
             '--project'
             $integrationProject
+            '--configuration'
+            $Configuration
+            '--no-build'
+            '--no-restore'
+        )
+        Invoke-DotNet -Arguments @(
+            'run'
+            '--project'
+            $setupTestsProject
             '--configuration'
             $Configuration
             '--no-build'

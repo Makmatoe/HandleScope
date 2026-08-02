@@ -33,6 +33,11 @@ Starting with HandleScope v0.2.2, a compatible release published from the
 canonical `Makmatoe/SessionDock` repository may dynamically select among
 reviewed HandleScope releases only when all of these controls are present:
 
+SessionDock 2.9.0 and later may select HandleScope 0.3.x through the native
+setup capability after that separate SessionDock release is published.
+SessionDock 2.8.x remains bound to its authenticated HandleScope 0.2.2 fallback
+and must not infer native-setup support.
+
 1. A dedicated user action opens a confirmation that names the exact selected
    HandleScope version and explains that continuing will download, install or
    replace the per-user API, start it immediately, and enable its limited
@@ -44,8 +49,11 @@ reviewed HandleScope releases only when all of these controls are present:
    and select only API adapters already compiled into SessionDock. Remote data
    must never define endpoint paths, request schemas, or response parsers.
 3. Every catalog entry pins the exact canonical Windows x64 package, checksum,
-   API executable, optional HandleScope release manifest, protocol contracts,
-   and required capabilities. SessionDock must reject a different version,
+   API executable, required HandleScope release manifest for non-legacy
+   releases, protocol contracts, and required capabilities. A native-setup
+   entry must additionally bind the schema-v2 manifest's exact
+   `api/HandleScope.Setup.exe` size and SHA-256 digest and require
+   `handlescope.setup.native.v1`. SessionDock must reject a different version,
    repository, asset name, byte length, SHA-256 digest, checksum entry,
    capability, or non-approved HTTPS download redirect. A missing
    `Content-Length` is acceptable only when the bounded stream ends at the exact
@@ -53,33 +61,40 @@ reviewed HandleScope releases only when all of these controls are present:
 4. Before any extracted file runs, SessionDock must enforce a bounded safe ZIP
    layout, cap entry count and total expanded bytes, reject filesystem links and
    unexpected entries, and verify the complete internal `CONTENTS.sha256`
-   inventory. It must then run only the release's unmodified
-   `api\Install-HandleScopeApi.ps1`, once with `-VerifyOnly` before the
-   installation phase.
-5. Both phases run as the current standard user. SessionDock may set
-   `-ExecutionPolicy RemoteSigned` only for each verified child process so the
-   local script can run when the effective default is `Restricted`. It must
-   never use `Bypass` or `Unrestricted`, change a saved execution policy,
-   override Group Policy, or request elevation.
-6. The confirmed installation phase may pass `-StartNow -EnableAutostart` as
-   disclosed. It must not pass `-EnableSessionDock`; the local SessionDock
-   opt-in remains a separate explicit action after installation.
-7. Automatic mode may refresh the signed recommendation only after an explicit
+   inventory. It must keep the archive, executable files, exact tree, and
+   ancestor directories locked and revalidate their identities and hashes before
+   and after each child phase.
+5. For a native-setup release, a compiled SessionDock adapter—not catalog
+   metadata—selects only `api\HandleScope.Setup.exe`. It runs `verify`, then
+   runs `install --start-now --enable-autostart` only after the confirmation.
+   Both native phases use direct process creation as the current standard user,
+   with no shell, PowerShell, arbitrary path, or remotely supplied argument.
+6. The separately compiled legacy adapter remains limited to the catalog-bound
+   v0.1.4 and v0.2.2 PowerShell installers. It may set process-scoped
+   `RemoteSigned` for those already verified local scripts, but never `Bypass`
+   or `Unrestricted`; it cannot change saved policy, override `MachinePolicy` or
+   `UserPolicy`, or request elevation.
+7. Neither adapter may enable SessionDock integration during installation; the
+   local opt-in remains a separate explicit user action. Native setup must not
+   receive `--enable-sessiondock`, and the legacy adapter must not pass
+   `-EnableSessionDock`.
+8. Automatic mode may refresh the signed recommendation only after an explicit
    **Check versions** action. Opening the panel and **Refresh** remain local-only.
    Automatic mode must never install. Exact-version and API selectors are stored
    separately from the legacy minimal `handlescope.json` opt-in so older clients
    continue to accept it.
-8. Every installation or replacement requires a new version-specific confirmation.
-   SessionDock must not use an unauthenticated mutable latest
+9. Every installation or replacement requires a new version-specific
+   confirmation. SessionDock must not use an unauthenticated mutable latest
    download, silently update or retry an installation, downgrade an installed
    release, or run other HandleScope start, stop, update, uninstall, or
    task-management commands.
 
 The same confirmed flow may replace an older supported per-user installation
 through HandleScope's own fail-closed installer. It never passes
-`-AllowDowngrade`. A user may always choose an older version for a clean install
-or choose the manual verified installation path, but replacing a newer installed
-release with an older one remains refused.
+`--allow-downgrade` or legacy `-AllowDowngrade`. A user may always choose an
+older version for a clean install or choose the manual verified installation
+path, but replacing a newer installed release with an older one remains
+refused.
 
 SessionDock remains usable when HandleScope is absent, stopped, incompatible,
 busy, or denies a request. Those conditions skip or fail only the optional
@@ -133,7 +148,7 @@ or copy that script.
 
 ## Explicit local setup
 
-Use a normal, non-administrator PowerShell window. Choose commands from one of
+Use a normal, non-administrator terminal. Choose commands from one of
 the following locations; do not mix an extracted-bundle path with an installed
 path.
 
@@ -143,10 +158,10 @@ Run these commands from the root of the extracted HandleScope release:
 
 ```powershell
 # Install the per-user API, start it, and explicitly opt SessionDock in.
-.\api\Install-HandleScopeApi.ps1 -StartNow -EnableSessionDock
+.\api\HandleScope.Setup.exe install --start-now --enable-sessiondock
 ```
 
-Add `-EnableAutostart` if the API should also start automatically at sign-in.
+Add `--enable-autostart` if the API should also start automatically at sign-in.
 The install command creates the installed API location documented below.
 
 ### After the per-user API is installed
@@ -155,10 +170,10 @@ These absolute commands work only after installation:
 
 ```powershell
 # Opt SessionDock in.
-& "$env:LOCALAPPDATA\Programs\HandleScope\Api\Enable-SessionDockIntegration.ps1"
+& "$env:LOCALAPPDATA\Programs\HandleScope\Api\HandleScope.Setup.exe" enable-sessiondock
 
 # Start an installed API that is not already running.
-& "$env:LOCALAPPDATA\Programs\HandleScope\Api\Start-HandleScopeApi.ps1"
+& "$env:LOCALAPPDATA\Programs\HandleScope\Api\HandleScope.Setup.exe" start
 ```
 
 The opt-in helper writes only `%LOCALAPPDATA%\SessionDock\handlescope.json` with
@@ -176,7 +191,7 @@ canonical file is absent, the helper recognizes the former
 `%LOCALAPPDATA%\RobloxOne\handlescope.json` only when it contains exactly this
 minimal opt-in, then copies the opt-in without deleting or modifying legacy
 data. A canonical setting always takes precedence. A non-minimal canonical
-setting is never replaced without explicit `-Force`; with `-Force`, it is
+setting is never replaced without explicit `--force`; with `--force`, it is
 replaced by exactly the minimal `enabled` setting shown above.
 
 See [`../INSTALL.md`](../INSTALL.md) for installation, start/stop, and optional

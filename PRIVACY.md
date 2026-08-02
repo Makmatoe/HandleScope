@@ -28,8 +28,8 @@ their IDs and request bodies are not written to the lifecycle log.
 
 ## Files and local persistence
 
-Installing the API places its executable, lifecycle scripts, and local
-documentation under:
+Installing the API places its API and native setup executables, legacy-compatible
+lifecycle scripts, runtime manifest, and local documentation under:
 
 ```text
 %LOCALAPPDATA%\Programs\HandleScope\Api
@@ -56,8 +56,8 @@ scheduled task in a per-user SID path. The task contains the current Windows
 account identity and the local API executable path. Autostart is optional and
 off by default.
 
-Running `Enable-SessionDockIntegration.ps1` is also optional. It writes only
-`%LOCALAPPDATA%\SessionDock\handlescope.json` with an `enabled` boolean. When
+Running `HandleScope.Setup.exe enable-sessiondock` is also optional. It writes
+only `%LOCALAPPDATA%\SessionDock\handlescope.json` with an `enabled` boolean. When
 that canonical file is absent, the helper may read the former
 `%LOCALAPPDATA%\RobloxOne\handlescope.json` to recognize and copy the old
 minimal opt-in. It does not delete or modify legacy data, let legacy state
@@ -72,11 +72,12 @@ and do not contain HandleScope's connection token or inspected handle data.
 They may remain until normal temporary-file cleanup; stop HandleScope before
 removing a matching temporary extraction directory.
 
-Running the uninstall script without `-KeepDiagnostics` removes the per-user
-API installation, optional autostart task, connection document, and diagnostic
-log. With `-KeepDiagnostics`, the runtime directory is retained for local
-troubleshooting. The portable desktop is removed by deleting its extracted
-release directory after the application is closed.
+Running `HandleScope.Setup.exe uninstall` removes the per-user API installation,
+optional autostart task, connection document, and diagnostic log. With
+`uninstall --keep-diagnostics`, the runtime directory is retained for local
+troubleshooting. The PowerShell lifecycle files remain only as legacy
+compatibility wrappers. The portable desktop is removed by deleting its
+extracted release directory after the application is closed.
 
 ## Network behavior
 
