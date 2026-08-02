@@ -104,6 +104,17 @@ internet. Selecting **Standalone HandleScope (advanced)** also performs no
 download or lifecycle action; any standalone download is initiated and managed
 by the user outside SessionDock.
 
+Opening SessionDock's integration panel and changing its runtime source,
+standalone Automatic/Keep installed/exact-version requirement, or API preference
+remain local-only. The standalone-only **Refresh reviewed versions** action is
+the exception: when explicitly selected, SessionDock fetches the latest signed
+compatibility catalog from its canonical GitHub release URL and verifies its
+signature, identity, validity, compatibility, and rollback floor. Refresh
+preserves the selected runtime source, standalone version, and API preference.
+It downloads no executable or installer and never installs, starts, stops,
+updates, downgrades, reconfigures, or uninstalls a runtime. A stale exact pin
+remains visible and recoverable without a network request.
+
 ## Sharing diagnostics and security reports
 
 Before sharing a screenshot or diagnostic excerpt, remove usernames, process

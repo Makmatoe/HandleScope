@@ -116,16 +116,33 @@ and delete its extracted folder to remove it.
 
 ## SessionDock integration and version selection
 
-SessionDock 3.0 offers two version sources and a separate API selector:
+SessionDock 3.0 offers a runtime source, a standalone runtime-version
+requirement, and an API selector. These are independent controls:
 
 | SessionDock source | Behavior |
 | --- | --- |
 | **Included with SessionDock (recommended)** | Uses HandleScope engine 0.3.0 compiled into `SessionDock.exe`; no separate HandleScope download or lifecycle setup. |
 | **Standalone HandleScope (advanced)** | Connects to an already installed and running standalone API; SessionDock does not change it. |
 
+The **Standalone runtime version** selector is available only for the advanced
+source:
+
+| Standalone runtime version | Behavior |
+| --- | --- |
+| **Automatic** | Accepts any installed HandleScope runtime that the signed catalog reviews as compatible with this SessionDock version. |
+| **Keep the installed version** | Accepts the installed reviewed compatible runtime without asking SessionDock to replace it. |
+| Exact reviewed version | Requires the already running runtime to match that exact signed-catalog-reviewed version; it never fetches or installs the version. |
+
 The API selector is **Automatic**, `v2`, or `v1`. It chooses only a compiled
 protocol contract, never a download or installed-package version. The included
 engine version follows the verified SessionDock release.
+
+Opening the integration panel is local-only. For the standalone source, select
+**Refresh reviewed versions** only when you explicitly want SessionDock to fetch
+and verify the latest signed compatibility catalog. Refresh preserves the
+selected runtime source, standalone version, and API preference. It never
+downloads, installs, starts, stops, updates, downgrades, or reconfigures either
+runtime.
 
 For normal included mode, open SessionDock's Integrations panel, keep the
 recommended source, select an API preference, then select **Enable**. SessionDock
@@ -148,6 +165,10 @@ only after review and an explicit `--force`.
   verified running standalone API is migrated to the advanced source. Existing
   `handlescope.json` opt-ins remain compatible, and the standalone installation
   is never modified.
+- A stale exact pin remains visible when it is not in the current reviewed list
+  or does not match the installed runtime. Recover by selecting **Automatic**,
+  **Keep the installed version**, or another reviewed exact version; none of
+  those choices changes the external installation.
 - SessionDock 2.9.x retains its older signed-catalog/standalone installation
   flow. Upgrade SessionDock to remove that separate-install requirement.
 - SessionDock 2.8.x remains on its authenticated HandleScope 0.2.2 path.

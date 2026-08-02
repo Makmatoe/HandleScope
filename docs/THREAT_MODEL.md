@@ -60,6 +60,12 @@ the identity or intent of another same-user process.
 6. For standalone use only, an optional per-user scheduled task launches the API
    at limited privilege for that Windows SID at interactive logon. Included mode
    creates no task and exits with its SessionDock parent.
+7. SessionDock's advanced standalone selector treats Automatic, Keep installed,
+   and exact signed-catalog-reviewed versions as local authorization preferences.
+   Opening the integration panel is local-only. Only the explicit standalone-only
+   **Refresh reviewed versions** action fetches and verifies the signed catalog;
+   it preserves source/version/API preferences and cannot retrieve or mutate a
+   runtime.
 
 ## API policy invariant
 
@@ -99,6 +105,7 @@ signature whose organization is `Roblox Corporation`.
 | SessionDock's embedded copy drifts or is substituted | The synchronized source is allowlisted and hash-bound to an immutable upstream tag/commit in provenance; CI/release gates verify version, inventory, license, SBOM, and that HandleScope exists only inside approved `SessionDock.exe` bytes | The SessionDock repository, build/release pipeline, and maintainers become additional trusted inputs |
 | SessionDock leaks or orphans its included token/child | Bootstrap uses an inherited anonymous pipe, secrets remain in memory, the child verifies its parent, and parent lifetime/disable triggers shutdown; no command-line, environment, file, service, or task secret/lifecycle channel exists | Same-user malware can inspect process memory; OS termination can briefly race cleanup |
 | SessionDock modifies standalone HandleScope | Runtime-source separation forbids SessionDock download/install/start/stop/update/downgrade/reconfiguration/uninstall actions; advanced mode is connection-only | A compromised SessionDock process already has the current user's authority and can attempt out-of-contract actions |
+| A catalog refresh changes a runtime or silently loses an exact pin | Refresh is standalone-only and explicit, verifies signature/identity/validity/compatibility/rollback controls, preserves source/version/API, and retrieves no executable; opening the panel remains local-only and a stale exact pin remains visible/recoverable | The canonical GitHub request reveals ordinary network metadata and availability still depends on that service; a compromised SessionDock process is outside this UI contract |
 | Scheduled-task persistence is widened | Standalone autostart is opt-in, per-SID, interactive-logon only, and `RunLevel Limited`; install/uninstall validate the expected action and privilege level. Included mode creates no task | The owning user can modify their own standalone limited task |
 | Supply-chain substitution | Restore is locked; third-party package references are prohibited; workflow actions are pinned; release publication is environment-approved and fresh-only; exact source provenance, catalogs, API/setup identities, checksums, SPDX inventory, redownload verification, immutable releases, and GitHub attestations are required | GitHub, both repository administrations, Actions, and maintainer accounts remain trusted dependencies; the free release model provides no Windows publisher identity and reputation systems may block a new unsigned hash |
 | Sensitive data enters diagnostics | No telemetry exists; API logs contain only bounded lifecycle and generic failure data; HTTP errors omit exception details and raw native identifiers | Desktop screenshots and manually copied output can still expose local names or paths |
@@ -133,7 +140,9 @@ fail-closed and the produced assets pass independent verification:
 - a SessionDock release that includes this engine independently verifies the
   immutable upstream tag/commit, synchronized allowlist/hashes, version,
   license/notices/SBOM, parent/pipe lifecycle, and absence of any HandleScope
-  publish sidecar; and
+  publish sidecar; preserves standalone Automatic/Keep installed/exact reviewed
+  selection, stale-pin recovery, explicit catalog refresh, and local-only panel
+  behavior; and
 - release notes accurately disclose the destructive behavior, supported policy,
   privacy behavior, and known limitations.
 

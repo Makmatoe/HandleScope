@@ -159,6 +159,19 @@ choices:
   installed and started with this guide. SessionDock never downloads, installs,
   starts, stops, updates, downgrades, reconfigures, or uninstalls it.
 
+For the advanced source, **Standalone runtime version** offers **Automatic**,
+**Keep the installed version**, and exact signed-catalog-reviewed compatible
+versions. The selection only authorizes an already installed/running runtime;
+it never retrieves or changes one. A stale exact pin remains visible so you can
+recover by selecting Automatic, Keep the installed version, or another reviewed
+exact version without modifying the standalone installation.
+
+Opening the integration panel remains local-only. The standalone-only
+**Refresh reviewed versions** action is the explicit way to fetch and verify the
+latest signed compatibility catalog. It preserves the selected runtime source,
+standalone version, and API preference, and never downloads, installs, starts,
+stops, updates, downgrades, reconfigures, or uninstalls a runtime.
+
 The signed compatibility catalog remains for older SessionDock clients and
 reviewed advanced-standalone identities. SessionDock 3.0's included flow does
 not download or execute from it. SessionDock 2.9.x retains the older separate
