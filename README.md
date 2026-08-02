@@ -10,13 +10,28 @@ HandleScope is a Windows x64 handle-inspection tool with two independent parts:
 `api\HandleScope.Setup.exe` is the recommended verifier, installer, and
 lifecycle tool. It is a native executable, so it works when PowerShell script
 execution is restricted. [SessionDock](https://github.com/Makmatoe/SessionDock)
-is separate and optional; HandleScope is not bundled with it.
+3.0 also ships the reviewed HandleScope 0.3.0 engine inside `SessionDock.exe`.
+SessionDock users do not need this repository's ZIP, API installer, PowerShell
+scripts, UAC, scheduled task, or autostart setup.
 
 > [!CAUTION]
 > Closing a handle can crash a process, corrupt its state, or lose unsaved data.
 > Close only a handle whose purpose and impact you understand.
 
+## Choose SessionDock or standalone HandleScope
+
+- If you use SessionDock 3.0 or later, install only SessionDock and select
+  **Included with SessionDock (recommended)**. SessionDock owns the child
+  lifetime and keeps its loopback token in an inherited pipe/in memory.
+- Use the instructions below only for HandleScope's portable desktop, direct API
+  clients, or the SessionDock **Standalone HandleScope (advanced)** source.
+- A standalone installation remains an independent product. SessionDock never
+  installs, updates, starts, stops, reconfigures, or uninstalls it.
+
 ## Install the API
+
+This section is for direct standalone users. It is not a prerequisite for
+SessionDock 3.0's included engine.
 
 Official releases support Windows 10 and 11 on x64, include their own .NET
 runtime, and run from a normal, non-administrator terminal.
@@ -101,7 +116,24 @@ and delete its extracted folder to remove it.
 
 ## SessionDock integration and version selection
 
-Opt in during installation with `--enable-sessiondock`, or later with:
+SessionDock 3.0 offers two version sources and a separate API selector:
+
+| SessionDock source | Behavior |
+| --- | --- |
+| **Included with SessionDock (recommended)** | Uses HandleScope engine 0.3.0 compiled into `SessionDock.exe`; no separate HandleScope download or lifecycle setup. |
+| **Standalone HandleScope (advanced)** | Connects to an already installed and running standalone API; SessionDock does not change it. |
+
+The API selector is **Automatic**, `v2`, or `v1`. It chooses only a compiled
+protocol contract, never a download or installed-package version. The included
+engine version follows the verified SessionDock release.
+
+For normal included mode, open SessionDock's Integrations panel, keep the
+recommended source, select an API preference, then select **Enable**. SessionDock
+checks readiness automatically; wait for **Ready** or use **Retry** after a
+bounded failure. No command in this repository is needed.
+
+For the advanced standalone source only, opt in during standalone installation
+with `--enable-sessiondock`, or later with:
 
 ```powershell
 & "$env:LOCALAPPDATA\Programs\HandleScope\Api\HandleScope.Setup.exe" enable-sessiondock
@@ -111,21 +143,28 @@ This writes only `%LOCALAPPDATA%\SessionDock\handlescope.json`; it starts
 nothing and accesses no token or account data. A non-minimal setting is replaced
 only after review and an explicit `--force`.
 
-- SessionDock 2.9.0 and later can keep the installed HandleScope version,
-  follow its signed recommendation, or select an exact reviewed version.
-  HandleScope 0.3.x uses the fixed `handlescope.setup.native.v1` adapter. A
-  recommendation never installs or downgrades; installation still requires a
-  version-specific confirmation.
+- Fresh SessionDock 3.0 setups default to the included engine. During upgrade,
+  an old Keep installed/Exact choice or an enabled Automatic setup with a
+  verified running standalone API is migrated to the advanced source. Existing
+  `handlescope.json` opt-ins remain compatible, and the standalone installation
+  is never modified.
+- SessionDock 2.9.x retains its older signed-catalog/standalone installation
+  flow. Upgrade SessionDock to remove that separate-install requirement.
 - SessionDock 2.8.x remains on its authenticated HandleScope 0.2.2 path.
 - HandleScope's desktop **SessionDock API** selector chooses only the protocol
   preference—automatic/v2 or legacy v1—not the installed package version. Both
   API families remain available, and the preference applies after API restart.
 
-The signed catalog can select only reviewed immutable releases and compiled
-adapters; remote data cannot define paths, arguments, or API behavior. See the
+The signed compatibility catalog remains available for older SessionDock
+clients and reviewed advanced-standalone identities; the 3.0 included flow does
+not download or execute from it. See the
 [SessionDock integration contract](docs/integrations/sessiondock.md).
 
 ## Fix common installation problems
+
+These fixes apply only to a direct standalone HandleScope download. SessionDock
+3.0 users should install/verify SessionDock itself and use its included source;
+they should not work around a blocked HandleScope ZIP or script.
 
 ### “Running scripts is disabled on this system”
 
@@ -190,8 +229,11 @@ The API accepts only `roblox-singleton-event-v1`: the exact current-session
 `RobloxPlayerBeta.exe`. A close requires a dry run and the identical request
 with its single-use plan ID within five seconds.
 
-The API binds to an ephemeral IPv4 loopback port and stores its rotating 256-bit
-token in protected `%LOCALAPPDATA%\HandleScope\connection.json`. It refuses
+The standalone API binds to an ephemeral IPv4 loopback port and stores its
+rotating 256-bit token in protected
+`%LOCALAPPDATA%\HandleScope\connection.json`. The SessionDock-included engine
+uses the same loopback policy but receives its token through an inherited pipe
+and keeps it in parent/child memory; it creates no connection file. Both refuse
 elevated, service-account, and session-0 execution. HandleScope has no telemetry,
 analytics, advertising, crash upload, cloud sync, or silent updater.
 
@@ -215,6 +257,13 @@ builds with warnings as errors, and runs setup tests plus a controlled harness
 that touches only its own child process, file, and event. Use
 `-SkipControlledIntegration` only for a documentation/environment limitation.
 See [Releasing HandleScope](docs/RELEASING.md) for publication gates.
+
+The SessionDock repository synchronizes its included component from an
+immutable HandleScope tag into `SessionDock.HandleScope/Upstream/` and records
+the tag, commit, version, file allowlist, and hashes in
+`SessionDock.HandleScope/handlescope-upstream.json`. Security fixes affecting the included
+engine must be coordinated here first, then synchronized and documented in
+SessionDock; do not maintain an untracked downstream fork.
 
 ## License
 

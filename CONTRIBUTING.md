@@ -13,6 +13,10 @@ verified against controlled child processes only.
    needed capability.
 4. Do not commit connection documents, tokens, logs, signing material, process
    dumps, build output, or machine-specific paths.
+5. Treat this repository as the source of truth for the HandleScope engine
+   synchronized into SessionDock. Shared Core/API changes must land here first;
+   update the SessionDock snapshot/provenance and both repositories' current
+   integration/security/privacy documentation in a coordinated follow-up.
 
 ## Validate a change
 
@@ -38,6 +42,8 @@ For documentation-only work, the minimum check is:
 - Call out API-contract changes explicitly and retain v1 compatibility unless
   a migration has been approved.
 - Include validation output and any Windows-version limitations.
+- Describe whether SessionDock's included source must be resynchronized and
+  name the upstream tag/commit that will be pinned.
 - Keep generated output out of the commit.
 - Release changes must remain fail-closed: preserve locked restore, pinned
   actions, protected publication, exact artifact inventories, version/tag

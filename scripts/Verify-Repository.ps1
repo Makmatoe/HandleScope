@@ -767,52 +767,44 @@ $sessionDockContractPath = Join-Path `
     'docs\integrations\sessiondock.md'
 if (Test-Path -LiteralPath $sessionDockContractPath -PathType Leaf) {
     $sessionDockContract = [IO.File]::ReadAllText($sessionDockContractPath)
-    $requiredManagedSetupControls = @(
-        'Starting with HandleScope v0.2.2',
-        'canonical `Makmatoe/SessionDock` repository',
-        'dedicated user action opens a confirmation',
-        'continuing will download, install or',
-        'rollback-resistant compatibility catalog',
-        'adapters already compiled into SessionDock',
-        'must never define endpoint paths',
-        'exact canonical Windows x64 package, checksum',
-        'API executable, required HandleScope release manifest',
-        'schema-v2 manifest''s exact',
-        '`api/HandleScope.Setup.exe` size and SHA-256 digest',
-        '`handlescope.setup.native.v1`',
-        'byte length, SHA-256 digest',
-        'non-approved HTTPS download redirect',
-        '`Content-Length` is acceptable only when the bounded stream',
-        'present contradictory length must be rejected',
-        'cap entry count and total expanded bytes',
-        'complete internal `CONTENTS.sha256`',
-        'compiled SessionDock adapter',
-        '`api\HandleScope.Setup.exe`. It runs `verify`, then',
-        '`install --start-now --enable-autostart` only after the confirmation',
-        'direct process creation as the current standard user',
-        'no shell, PowerShell, arbitrary path',
-        'separately compiled legacy adapter',
-        'process-scoped',
-        '`RemoteSigned` for those already verified local scripts',
-        'never `Bypass`',
-        'Native setup must not',
-        'receive `--enable-sessiondock`',
-        'legacy adapter must not pass',
-        '`-EnableSessionDock`',
-        '**Check versions** action',
-        'Opening the panel and **Refresh** remain local-only',
-        'requires a new version-specific',
-        'never embed its files, elevate it, uninstall it, downgrade it',
-        'silently update or retry an installation',
-        'It never passes',
-        '`--allow-downgrade` or legacy `-AllowDowngrade`'
+    $requiredBundledIntegrationControls = @(
+        'SessionDock 3.0 ships',
+        'HandleScope 0.3.0 engine inside `SessionDock.exe`',
+        '**Included with SessionDock (recommended)**',
+        '**Standalone HandleScope (advanced)**',
+        'starts one non-elevated, parent-owned child',
+        'inherited anonymous pipe',
+        '`SessionDock.HandleScope/handlescope-upstream.json`',
+        'allowlisted file',
+        'No HandleScope',
+        'executable, installer, script, component directory, service, scheduled task',
+        'refuses',
+        'ephemeral numeric IPv4 loopback',
+        'never written to disk, a command line, environment',
+        'fixed `roblox-singleton-event-v1` policy',
+        'never mutates its lifecycle',
+        'never downloads, installs, starts, stops, updates, downgrades',
+        'signed compatibility catalog remains available for older SessionDock',
+        'cannot define a path',
+        'flow never',
+        'downloader/installer must not',
+        'installed/Exact selection',
+        'otherwise unselected setup',
+        'Require the positive PID returned by the successful Roblox launch',
+        'verify the exact owned child',
+        'consult `connection.json`',
+        'Disable proxies, redirects, and cookies',
+        'Require the execution response to report the launched PID',
+        'Never persist, display, log, export, or send the bearer token',
+        'Do not run a HandleScope installer or PowerShell script',
+        'SessionDock owns the child and stops it on disable or exit'
     )
-    foreach ($control in $requiredManagedSetupControls) {
+    foreach ($control in $requiredBundledIntegrationControls) {
         if ($sessionDockContract.IndexOf(
                 $control,
                 [StringComparison]::Ordinal) -lt 0) {
             $failures.Add(
-                "SessionDock managed-setup contract is missing its reviewed control: $control")
+                "SessionDock bundled-integration contract is missing its reviewed control: $control")
         }
     }
 }

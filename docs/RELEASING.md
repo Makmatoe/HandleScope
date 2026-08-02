@@ -70,33 +70,42 @@ reviewer. The environment requires no variables and no secrets.
 7. Review and approve the pending `release` environment deployment. Do not
    approve if the tag, commit, workflow, or generated inventory is unexpected.
 
-### SessionDock managed-setup contract
+### SessionDock bundled-source and standalone contracts
 
-HandleScope v0.2.2 introduced an immutable per-release compatibility manifest;
-it does not grant a floating authorization to future HandleScope or SessionDock
-versions. Before a compatible SessionDock release adds a catalog entry, verify
-the manifest against the public assets, then review SessionDock's signed catalog
-sequence and validity, compatible version range, compiled protocol adapters,
-confirmation, canonical asset URLs, fixed sizes and SHA-256 hashes, redirect
-allowlist, streamed bounds, checksum parsing, ZIP and internal inventory
-validation, compiled setup-adapter arguments, standard-user token, cancellation
-behavior, downgrade refusal, and separate integration opt-in against
-[`integrations/sessiondock.md`](integrations/sessiondock.md).
+This repository is the source of truth for the HandleScope engine synchronized
+into SessionDock. For any shared Core/API change:
 
-For HandleScope 0.3.0 and later, require release-manifest schema v2, the exact
-`setupExecutable` identity, and `handlescope.setup.native.v1`. The compiled
-SessionDock native adapter must run `verify` and then the separately confirmed
-`install --start-now --enable-autostart` directly, without a shell or
-PowerShell. Process-scoped `RemoteSigned` remains only in the compiled legacy
-v0.1.4/v0.2.2 adapter and cannot override Group Policy.
+1. Land and validate it here first.
+2. Publish or identify an immutable HandleScope tag and exact protected-main
+   commit.
+3. In the SessionDock repository, run
+   `.\scripts\Sync-BundledHandleScope.ps1` to verify the existing snapshot, or
+   `.\scripts\Sync-BundledHandleScope.ps1 -UpstreamPath C:\path\to\HandleScope -Sync`
+   to copy the pinned tag/commit from this local checkout. The script performs
+   no network operation. Review every synchronized file and the regenerated
+   `SessionDock.HandleScope/handlescope-upstream.json`.
+4. Confirm the provenance repository, version, tag, commit, allowlisted paths,
+   and hashes match this immutable source.
+5. Update both repositories' current integration, security, privacy, threat
+   model, contributing, and release documents; update SessionDock's displayed
+   component version, MIT license/notices, SBOM inputs, localized UI, and tests.
+6. Verify SessionDock publishes HandleScope only inside `SessionDock.exe`, with
+   no HandleScope executable, installer, script, or component-directory sidecar.
 
-Record the new HandleScope tag, protected-main source commit, ZIP, checksum,
-release-manifest asset names, lengths, and SHA-256 hashes, extracted API and
-native setup executable lengths and SHA-256 hashes, protocol/capability lists,
-SBOM identity, release immutability, and successful artifact attestation. A
-SessionDock catalog may be updated only after the new HandleScope release is
-public and these values have been independently checked. Never revise the
-contract of an existing immutable release to authorize a client retroactively.
+SessionDock's included child must remain non-elevated, current-user/session,
+parent-owned, numeric-IPv4-loopback-only, inherited-pipe-bootstrapped, and tied
+to the parent's lifetime. The token/endpoint stays in memory. Normal SessionDock
+use must require no HandleScope download, standalone install, PowerShell, UAC,
+scheduled task, autostart, update, or uninstall action.
+
+The independent standalone release remains fully supported for direct clients
+and **Standalone HandleScope (advanced)**. SessionDock must not download,
+install, start, stop, update, downgrade, reconfigure, or uninstall that copy.
+The immutable compatibility manifest and signed SessionDock catalog remain for
+older SessionDock clients and reviewed advanced-standalone identities; they are
+authorization data only and cannot define executable behavior. Never revise the
+contract of an existing immutable release retroactively or restore SessionDock's
+removed in-app downloader/installer.
 
 No cryptographic tag key is required. Repository and tag rules determine who
 may create release tags, while the GitHub attestation binds each asset to the

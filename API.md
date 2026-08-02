@@ -10,7 +10,17 @@ account, or running in session 0. It never enables `SeDebugPrivilege`. A
 per-user, per-session named semaphore provides a single-instance guard for the
 same user session.
 
+SessionDock 3.0 includes this 0.3.0 engine inside `SessionDock.exe`. Its
+parent-owned child uses the same HTTP/policy contract but receives bootstrap
+data through an inherited anonymous pipe and keeps its token/endpoint in
+parent-child memory. The standalone executable described below retains the
+disk-based discovery contract for direct clients.
+
 ## Install and lifecycle
+
+These commands install the standalone API only. SessionDock 3.0 users should
+select **Included with SessionDock (recommended)** and do not need this setup,
+PowerShell, UAC, scheduled-task, or autostart flow.
 
 Extract the complete official release ZIP. From a normal, non-administrator
 terminal in the extracted `api` directory, run the native setup tool:
@@ -72,9 +82,10 @@ security, integrity, identity, or environment refusal, and `4` means a trusted
 lifecycle or Windows operation failed. Callers must treat every other result as
 failure and must not retry by weakening policy.
 
-## Connection discovery
+## Connection discovery and included bootstrap
 
-While running, the API publishes its active discovery document at:
+While running as a standalone application, the API publishes its active
+discovery document at:
 
 ```text
 %LOCALAPPDATA%\HandleScope\connection.json
@@ -103,6 +114,13 @@ The discovery schema deliberately remains v1 even when a client later negotiates
 v2. The API removes a connection document it owns during normal shutdown.
 Clients must still verify the named process and the exact `/v1/health` response;
 a stale file is not proof that the API is available.
+
+The SessionDock-included child does not create or read this file. SessionDock
+creates an inherited anonymous pipe before launch and transfers only the bounded
+bootstrap material to its exact child. The rotating token and ephemeral numeric
+IPv4 loopback endpoint remain in parent/child memory and never enter a command
+line, environment variable, setting, log, diagnostics, or UI. The child verifies
+its parent and exits when the parent lifetime ends.
 
 ## Compatibility negotiation
 
@@ -297,23 +315,32 @@ token from other processes running as the same user.
 
 ## SessionDock integration
 
-SessionDock must treat HandleScope as a separately released, optional local
-dependency. A compatible SessionDock release may offer the strictly confirmed,
-catalog-selected managed setup defined in the complete client boundary below;
-it must not bundle HandleScope or silently install, update, start, or configure
-it. For each launch operation it must discover the current v1 connection,
-require health policy `roblox-singleton-event-v1`, negotiate only a compiled and
-authenticated v1 or v2 adapter, construct only the exact session-specific recipe
-above, perform a dry run, and use the resulting plan at most once. It must remain
-usable when HandleScope is absent or denies the request.
+SessionDock 3.0 offers **Included with SessionDock (recommended)** and
+**Standalone HandleScope (advanced)**. Included mode compiles the reviewed
+HandleScope 0.3.0 source into `SessionDock.exe` and owns the non-elevated child,
+pipe bootstrap, loopback endpoint, token, and shutdown. It uses no separate
+download, installer, PowerShell, UAC, scheduled task, autostart, updater, or
+uninstaller.
+
+Advanced standalone mode retains this document's discovery file, but
+SessionDock never downloads, installs, starts, stops, updates, downgrades,
+reconfigures, or uninstalls that external application. The standalone API must
+already be running.
+
+For each launch operation, both sources require policy
+`roblox-singleton-event-v1`, negotiate only the compiled/authenticated v1 or v2
+adapter selected by Automatic/`v2`/`v1`, construct only the exact
+session-specific recipe above, perform a dry run, and consume the matching plan
+at most once. SessionDock remains usable when either source is disabled, absent,
+or denies the request.
 
 The complete client boundary is in
 [`docs/integrations/sessiondock.md`](docs/integrations/sessiondock.md).
 
-Passing `--enable-sessiondock` to native setup's `install` command is the
+No standalone command is required for included mode. For advanced standalone
+mode, passing `--enable-sessiondock` to native setup's `install` command is the
 simplest explicit opt-in. After installation, a user can also enable
-SessionDock's side of that boundary separately without copying a token or
-endpoint:
+SessionDock's side separately without copying a token or endpoint:
 
 ```powershell
 & "$env:LOCALAPPDATA\Programs\HandleScope\Api\HandleScope.Setup.exe" enable-sessiondock

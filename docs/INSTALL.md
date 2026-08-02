@@ -5,6 +5,12 @@ are self-contained; end users do not need to install the .NET SDK or runtime.
 Both the desktop application and local API run as the current standard user and
 must be started from a normal, non-administrator session.
 
+> [!NOTE]
+> SessionDock 3.0 includes HandleScope engine 0.3.0 inside `SessionDock.exe`.
+> SessionDock users should install only SessionDock and select **Included with
+> SessionDock (recommended)**. The standalone steps below are for direct
+> HandleScope use or **Standalone HandleScope (advanced)** only.
+
 ## Verify the release
 
 Download the release ZIP, matching SPDX SBOM, and `SHA256SUMS.txt` from the same
@@ -140,28 +146,28 @@ Roblox singleton policy and client contract.
 
 ## Connect SessionDock
 
-[SessionDock](https://github.com/Makmatoe/SessionDock) remains a separate
-download and HandleScope is never bundled inside it. Starting with HandleScope
-v0.2.2, a compatible SessionDock release may offer automatic, keep-installed,
-and exact version choices backed by its signed compatibility catalog. The
-catalog binds each approved immutable package, checksum, release manifest, API
-executable, protocol set, capability set, and SessionDock version range. Every
-actual installation still requires a version-specific confirmation and complete
-verification before the unmodified installer runs as the standard user. Its
-confirmation must disclose that setup starts the API and enables limited
-per-user autostart. Automatic selection changes a recommendation only and never
-installs or downgrades. SessionDock must not enable the integration
-automatically, elevate, use `Bypass` or `Unrestricted`, change saved PowerShell
-policy, override Group Policy, or perform silent lifecycle actions. The exact
-required client controls are in
+[SessionDock](https://github.com/Makmatoe/SessionDock) 3.0 has two source
+choices:
+
+- **Included with SessionDock (recommended)** uses the reviewed HandleScope
+  0.3.0 engine compiled into `SessionDock.exe`. Install only SessionDock, choose
+  Automatic/`v2`/`v1`, then select **Enable**. SessionDock checks readiness
+  automatically; wait for **Ready** or use **Retry** after a bounded failure.
+  There is no HandleScope download, install command, PowerShell policy, UAC,
+  scheduled task, autostart, or separate update.
+- **Standalone HandleScope (advanced)** connects to an API you intentionally
+  installed and started with this guide. SessionDock never downloads, installs,
+  starts, stops, updates, downgrades, reconfigures, or uninstalls it.
+
+The signed compatibility catalog remains for older SessionDock clients and
+reviewed advanced-standalone identities. SessionDock 3.0's included flow does
+not download or execute from it. SessionDock 2.9.x retains the older separate
+installation flow; SessionDock 2.8.x remains on its HandleScope 0.2.2 path.
+The exact current contract is in
 [`integrations/sessiondock.md`](integrations/sessiondock.md).
 
-SessionDock 2.9.0 and later may select HandleScope 0.3.x through the native
-setup capability after that separate release is published. SessionDock 2.8.x
-remains bound to its authenticated HandleScope 0.2.2 fallback.
-
-For manual setup, `--enable-sessiondock` on the install command is the easiest
-explicit opt-in. To enable it separately later, run:
+For advanced standalone mode, `--enable-sessiondock` on the install command is
+the easiest explicit opt-in. To enable it separately later, run:
 
 ```powershell
 & "$env:LOCALAPPDATA\Programs\HandleScope\Api\HandleScope.Setup.exe" enable-sessiondock
@@ -181,7 +187,8 @@ path without deleting legacy data. Legacy state never overwrites a canonical
 file. If the canonical file has the integration disabled or uses a non-minimal
 format, setup requires the explicit `--force` option before replacing it.
 
-Start the API separately before launching through SessionDock:
+Select **Standalone HandleScope (advanced)** in SessionDock, then start the API
+separately before enabling/retrying the source or launching:
 
 ```powershell
 & "$env:LOCALAPPDATA\Programs\HandleScope\Api\HandleScope.Setup.exe" start
@@ -260,8 +267,12 @@ GitHub-attested release assets. The packaged installer accepts only a complete
 finalized bundle with its matching internal manifest. Do not regenerate a
 manifest to make an unreviewed or partial bundle look official.
 
-SessionDock remains a separate optional client. It must not bundle HandleScope
-or perform any download, install, startup, autostart, update, or other lifecycle
-action outside the strictly confirmed and verified managed-setup boundary. It
-must never elevate or uninstall HandleScope. See
-[`integrations/sessiondock.md`](integrations/sessiondock.md).
+SessionDock synchronizes its included component from an immutable HandleScope
+tag into `SessionDock.HandleScope/Upstream/` and records the repository,
+version, tag, commit, allowlisted files, and hashes in
+`SessionDock.HandleScope/handlescope-upstream.json`. Fixes to shared Core/API behavior must
+land here first and be synchronized into SessionDock; do not maintain divergent
+copies. SessionDock must keep the included child non-elevated, parent-owned, and
+loopback-only with token bootstrap through an inherited pipe. It must never
+modify a separately installed standalone HandleScope. See the
+[`SessionDock integration contract`](integrations/sessiondock.md).
