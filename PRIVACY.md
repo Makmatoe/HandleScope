@@ -40,6 +40,8 @@ The API writes only these runtime files under
 
 - `connection.json`, containing the current loopback URL, API version, process
   ID, start time, and rotating bearer token;
+- `compatibility.json`, containing only the user's preferred SessionDock API
+  contract mode (`automatic`, `v2`, or legacy `v1`);
 - `api.log`, containing minimal lifecycle messages and generic error type/code
   information, not request bodies, target names, or bearer tokens.
 
@@ -82,12 +84,13 @@ Released HandleScope binaries do not check for updates or contact GitHub,
 Roblox, Microsoft, the maintainer, or any other internet service. API traffic
 is limited to `127.0.0.1`, and the API's Roblox executable trust check uses
 Windows' cache-only verification mode. Downloading a release, visiting GitHub,
-building from source, a user-confirmed SessionDock managed download, and
+building from source, a user-requested SessionDock compatibility-catalog check,
+a user-confirmed SessionDock managed download, and
 artifact-attestation or release-integrity checks performed by GitHub CLI are
 separate actions that may contact their respective services. The managed path
 is required to contact only the canonical GitHub release endpoints for its
-exact pinned package and checksum assets and must not send HandleScope runtime
-credentials or process data.
+signed catalog and exact selected package, checksum, and optional manifest
+assets. It must not send HandleScope runtime credentials or process data.
 
 ## Sharing diagnostics and security reports
 

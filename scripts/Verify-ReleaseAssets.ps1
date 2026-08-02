@@ -79,8 +79,14 @@ if (-not (Test-Path -LiteralPath $releaseDirectory -PathType Container)) {
 $assetBaseName = "HandleScope-$Version-win-x64"
 $zipName = "$assetBaseName.zip"
 $sbomName = "$assetBaseName.spdx.json"
+$releaseManifestName = "$assetBaseName.release.json"
 $checksumName = 'SHA256SUMS.txt'
-$expectedAssetNames = @($zipName, $sbomName, $checksumName)
+$expectedAssetNames = @(
+    $zipName,
+    $sbomName,
+    $releaseManifestName,
+    $checksumName
+)
 $actualAssetNames = @(
     Get-ChildItem -LiteralPath $releaseDirectory -File |
         Select-Object -ExpandProperty Name
@@ -92,6 +98,7 @@ Assert-ExactList `
 
 $zipPath = Join-Path $releaseDirectory $zipName
 $sbomPath = Join-Path $releaseDirectory $sbomName
+$releaseManifestPath = Join-Path $releaseDirectory $releaseManifestName
 $checksumPath = Join-Path $releaseDirectory $checksumName
 $checksumEntries = [ordered]@{}
 foreach ($line in Get-Content -LiteralPath $checksumPath) {
@@ -104,7 +111,7 @@ foreach ($line in Get-Content -LiteralPath $checksumPath) {
     }
     $checksumEntries[$name] = $Matches.hash
 }
-$expectedChecksummedAssets = @($zipName, $sbomName)
+$expectedChecksummedAssets = @($zipName, $sbomName, $releaseManifestName)
 Assert-ExactList `
     -Expected $expectedChecksummedAssets `
     -Actual @($checksumEntries.Keys) `
@@ -232,6 +239,7 @@ try {
         'THIRD_PARTY_NOTICES.md',
         'api/API.md',
         'api/HandleScope.Api.exe',
+        'api/HandleScope.runtime.json',
         'api/Enable-SessionDockIntegration.ps1',
         'api/HandleScope.ScriptCommon.ps1',
         'api/Install-HandleScopeApi.ps1',
@@ -298,6 +306,126 @@ try {
         if ($manifestEntries[$relativePath] -cne $actualHash) {
             throw "Bundle content hash mismatch: $relativePath"
         }
+    }
+
+    $expectedApiVersions = @('v1', 'v2')
+    $expectedPolicies = @('roblox-singleton-event-v1')
+    $expectedCapabilities = @(
+        'handlescope.http.v1',
+        'handlescope.http.v2',
+        'handlescope.policy.roblox-singleton-event.v1',
+        'handlescope.plan.single-use.v1'
+    )
+    $runtimeManifestPath = Join-Path $bundleRoot 'api\HandleScope.runtime.json'
+    $runtimeManifest = Get-Content -LiteralPath $runtimeManifestPath -Raw |
+        ConvertFrom-Json
+    Assert-ExactList `
+        -Expected @(
+            'schemaVersion', 'product', 'repository', 'version', 'tag',
+            'sourceRevision', 'sourceTimestamp', 'runtime',
+            'discoveryApiVersion', 'supportedApiVersions',
+            'preferredApiVersion', 'policies', 'capabilities'
+        ) `
+        -Actual @($runtimeManifest.PSObject.Properties.Name) `
+        -Description 'Installed runtime manifest fields'
+    if ($runtimeManifest.schemaVersion -ne 1 -or
+        $runtimeManifest.product -cne 'HandleScope.Api' -or
+        $runtimeManifest.repository -cne 'Makmatoe/HandleScope' -or
+        $runtimeManifest.version -cne $Version -or
+        $runtimeManifest.tag -cne "v$Version" -or
+        $runtimeManifest.runtime -cne 'win-x64' -or
+        $runtimeManifest.discoveryApiVersion -cne 'v1' -or
+        $runtimeManifest.preferredApiVersion -cne 'v2' -or
+        [string]$runtimeManifest.sourceRevision -cnotmatch '^[0-9a-f]{40}$' -or
+        [string]$runtimeManifest.sourceTimestamp -cnotmatch '^\d{4}-\d{2}-\d{2}T') {
+        throw 'Installed runtime manifest identity is invalid.'
+    }
+    Assert-ExactList `
+        -Expected $expectedApiVersions `
+        -Actual @($runtimeManifest.supportedApiVersions) `
+        -Description 'Installed runtime API versions'
+    Assert-ExactList `
+        -Expected $expectedPolicies `
+        -Actual @($runtimeManifest.policies) `
+        -Description 'Installed runtime policies'
+    Assert-ExactList `
+        -Expected $expectedCapabilities `
+        -Actual @($runtimeManifest.capabilities) `
+        -Description 'Installed runtime capabilities'
+
+    $releaseManifest = Get-Content -LiteralPath $releaseManifestPath -Raw |
+        ConvertFrom-Json
+    Assert-ExactList `
+        -Expected @(
+            'schemaVersion', 'product', 'repository', 'version', 'tag',
+            'runtime', 'sourceRevision', 'sourceTimestamp',
+            'discoveryApiVersion', 'supportedApiVersions',
+            'preferredApiVersion', 'policies', 'capabilities',
+            'package', 'sbom', 'apiExecutable'
+        ) `
+        -Actual @($releaseManifest.PSObject.Properties.Name) `
+        -Description 'External release manifest fields'
+    if ($releaseManifest.schemaVersion -ne 1 -or
+        $releaseManifest.product -cne 'HandleScope' -or
+        $releaseManifest.repository -cne 'Makmatoe/HandleScope' -or
+        $releaseManifest.version -cne $Version -or
+        $releaseManifest.tag -cne "v$Version" -or
+        $releaseManifest.runtime -cne 'win-x64' -or
+        $releaseManifest.discoveryApiVersion -cne 'v1' -or
+        $releaseManifest.preferredApiVersion -cne 'v2' -or
+        $releaseManifest.sourceRevision -cne $runtimeManifest.sourceRevision -or
+        $releaseManifest.sourceTimestamp -cne $runtimeManifest.sourceTimestamp) {
+        throw 'External release manifest identity is invalid.'
+    }
+    Assert-ExactList `
+        -Expected $expectedApiVersions `
+        -Actual @($releaseManifest.supportedApiVersions) `
+        -Description 'External release API versions'
+    Assert-ExactList `
+        -Expected $expectedPolicies `
+        -Actual @($releaseManifest.policies) `
+        -Description 'External release policies'
+    Assert-ExactList `
+        -Expected $expectedCapabilities `
+        -Actual @($releaseManifest.capabilities) `
+        -Description 'External release capabilities'
+    $assetRecords = @(
+        [pscustomobject]@{
+            Record = $releaseManifest.package
+            Name = $zipName
+            Path = $zipPath
+        }
+        [pscustomobject]@{
+            Record = $releaseManifest.sbom
+            Name = $sbomName
+            Path = $sbomPath
+        }
+    )
+    foreach ($assetRecord in $assetRecords) {
+        $record = $assetRecord.Record
+        $name = [string]$assetRecord.Name
+        $path = [string]$assetRecord.Path
+        Assert-ExactList `
+            -Expected @('name', 'size', 'sha256') `
+            -Actual @($record.PSObject.Properties.Name) `
+            -Description "External release $name fields"
+        if ($record.name -cne $name -or
+            [long]$record.size -ne [IO.FileInfo]::new($path).Length -or
+            $record.sha256 -cne (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()) {
+            throw "External release manifest mismatch: $name"
+        }
+    }
+    $apiExecutablePath = Join-Path $bundleRoot 'api\HandleScope.Api.exe'
+    Assert-ExactList `
+        -Expected @('path', 'size', 'sha256') `
+        -Actual @($releaseManifest.apiExecutable.PSObject.Properties.Name) `
+        -Description 'External release API executable fields'
+    if ($releaseManifest.apiExecutable.path -cne 'api/HandleScope.Api.exe' -or
+        [long]$releaseManifest.apiExecutable.size -ne
+            [IO.FileInfo]::new($apiExecutablePath).Length -or
+        $releaseManifest.apiExecutable.sha256 -cne
+            (Get-FileHash -LiteralPath $apiExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant()) {
+        throw 'External release API executable identity is invalid.'
     }
 
     $approvedLicenseSha256 =

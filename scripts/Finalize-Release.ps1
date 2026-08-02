@@ -277,7 +277,9 @@ $expectedScriptFiles = @(
     'bundle/api/Stop-HandleScopeApi.ps1',
     'bundle/api/Uninstall-HandleScopeApi.ps1'
 )
-$expectedFirstPartyFiles = $expectedPeFiles + $expectedScriptFiles
+$expectedFirstPartyFiles = $expectedPeFiles + $expectedScriptFiles + @(
+    'bundle/api/HandleScope.runtime.json'
+)
 $catalogEntries = @(
     Get-Content -LiteralPath $catalogPath |
         ForEach-Object { $_.Trim() } |
@@ -336,8 +338,9 @@ $expectedBundleFiles = @(
     'RELEASE_NOTES.md',
     'SECURITY.md',
     'THIRD_PARTY_NOTICES.md',
-        'api/API.md',
-        'api/HandleScope.Api.exe',
+    'api/API.md',
+    'api/HandleScope.Api.exe',
+    'api/HandleScope.runtime.json',
         'api/Enable-SessionDockIntegration.ps1',
         'api/HandleScope.ScriptCommon.ps1',
     'api/Install-HandleScopeApi.ps1',
@@ -583,7 +586,49 @@ finally {
 
 $sbomPath = Join-Path $outputRoot $sbomName
 Write-Utf8NoBom -Path $sbomPath -Value (($spdx | ConvertTo-Json -Depth 12) + "`n")
-$checksumFiles = @($zipPath, $sbomPath) | Sort-Object { Split-Path -Leaf $_ }
+$releaseManifestName = "$assetBaseName.release.json"
+$releaseManifestPath = Join-Path $outputRoot $releaseManifestName
+$apiExecutablePath = Join-Path $bundleRoot 'api\HandleScope.Api.exe'
+$releaseManifest = [ordered]@{
+    schemaVersion = 1
+    product = 'HandleScope'
+    repository = 'Makmatoe/HandleScope'
+    version = $version
+    tag = "v$version"
+    runtime = 'win-x64'
+    sourceRevision = [string]$metadata.sourceRevision
+    sourceTimestamp = [string]$metadata.sourceTimestamp
+    discoveryApiVersion = 'v1'
+    supportedApiVersions = @('v1', 'v2')
+    preferredApiVersion = 'v2'
+    policies = @('roblox-singleton-event-v1')
+    capabilities = @(
+        'handlescope.http.v1',
+        'handlescope.http.v2',
+        'handlescope.policy.roblox-singleton-event.v1',
+        'handlescope.plan.single-use.v1'
+    )
+    package = [ordered]@{
+        name = $zipName
+        size = [IO.FileInfo]::new($zipPath).Length
+        sha256 = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    sbom = [ordered]@{
+        name = $sbomName
+        size = [IO.FileInfo]::new($sbomPath).Length
+        sha256 = (Get-FileHash -LiteralPath $sbomPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    apiExecutable = [ordered]@{
+        path = 'api/HandleScope.Api.exe'
+        size = [IO.FileInfo]::new($apiExecutablePath).Length
+        sha256 = (Get-FileHash -LiteralPath $apiExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+}
+Write-Utf8NoBom `
+    -Path $releaseManifestPath `
+    -Value (($releaseManifest | ConvertTo-Json -Depth 8) + "`n")
+$checksumFiles = @($zipPath, $sbomPath, $releaseManifestPath) |
+    Sort-Object { Split-Path -Leaf $_ }
 $checksumLines = foreach ($file in $checksumFiles) {
     $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
     "$hash  $(Split-Path -Leaf $file)"

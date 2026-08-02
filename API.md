@@ -1,4 +1,4 @@
-# HandleScope local API v1
+# HandleScope local API v1 and v2
 
 `HandleScope.Api.exe` is a standard-user, headless Windows process. It binds to
 an ephemeral IPv4 loopback port and enforces one compiled automation policy:
@@ -78,9 +78,46 @@ each operation, and never hard-code, retain, display, log, or transmit its
 token. A client must accept only `http://127.0.0.1:<port>` with no user info,
 path, query, or fragment, and must disable proxies and redirects.
 
-The API removes a connection document it owns during normal shutdown. Clients
-must still verify the named process and `/v1/health`; a stale file is not proof
-that the API is available.
+The discovery schema deliberately remains v1 even when a client later negotiates
+v2. The API removes a connection document it owns during normal shutdown.
+Clients must still verify the named process and the exact `/v1/health` response;
+a stale file is not proof that the API is available.
+
+## Compatibility negotiation
+
+HandleScope 0.2.0 adds authenticated `GET /v1/metadata`. This additive endpoint
+does not change discovery or the legacy health document. Its exact response is:
+
+```json
+{
+  "schemaVersion": 1,
+  "productVersion": "0.2.0",
+  "discoveryApiVersion": "v1",
+  "supportedApiVersions": ["v1", "v2"],
+  "preferredApiVersion": "v2",
+  "policies": ["roblox-singleton-event-v1"],
+  "capabilities": [
+    "handlescope.http.v1",
+    "handlescope.http.v2",
+    "handlescope.policy.roblox-singleton-event.v1",
+    "handlescope.plan.single-use.v1"
+  ]
+}
+```
+
+Clients must authenticate this request with the current discovery token, reject
+unknown or duplicate fields, and cross-check `productVersion`, API contracts,
+policy, and capabilities against a separately authenticated executable/release
+identity. Metadata may select only a protocol adapter already compiled into the
+client; it cannot define paths, request shapes, or parsers. A legacy 0.1.x
+runtime has no metadata endpoint and remains usable through the compiled v1
+adapter when its executable identity is separately authorized.
+
+The desktop compatibility selector writes only
+`%LOCALAPPDATA%\HandleScope\compatibility.json`. Automatic and v2 prefer v2;
+legacy v1 prefers v1. Both endpoint families remain active in every mode, so an
+older v1 client is never locked out. The preference takes effect when the API
+next starts and does not download, install, or replace software.
 
 ## Supported close policy
 
@@ -225,8 +262,12 @@ and intentionally omit internal exception details.
 | Method | Path | Authentication | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/v1/health` | None | Readiness, API version, and policy ID |
+| `GET` | `/v2/health` | None | v2 readiness plus product and protocol preference metadata |
+| `GET` | `/v1/metadata` | Bearer token | Strict compatibility and capability metadata |
 | `POST` | `/v1/handles/close` | Bearer token | Dry-run or execute the exact compiled policy |
+| `POST` | `/v2/handles/close` | Bearer token | v2 alias of the same exact request/response policy |
 | `POST` | `/v1/shutdown` | Bearer token | Stop the headless host |
+| `POST` | `/v2/shutdown` | Bearer token | Stop the headless host through v2 |
 
 Authenticated endpoints reject requests that present common browser-origin
 headers. That is defense in depth, not a substitute for protecting the bearer
@@ -236,13 +277,13 @@ token from other processes running as the same user.
 
 SessionDock must treat HandleScope as a separately released, optional local
 dependency. A compatible SessionDock release may offer the strictly confirmed,
-version-pinned managed setup defined in the complete client boundary below; it
-must not bundle HandleScope or silently install, update, start, or configure it.
-For each launch operation it must discover the current connection, require
-health policy `roblox-singleton-event-v1`, construct only the exact
-session-specific recipe above, perform a dry run, and use the resulting plan at
-most once. It must remain usable when HandleScope is absent or denies the
-request.
+catalog-selected managed setup defined in the complete client boundary below;
+it must not bundle HandleScope or silently install, update, start, or configure
+it. For each launch operation it must discover the current v1 connection,
+require health policy `roblox-singleton-event-v1`, negotiate only a compiled and
+authenticated v1 or v2 adapter, construct only the exact session-specific recipe
+above, perform a dry run, and use the resulting plan at most once. It must remain
+usable when HandleScope is absent or denies the request.
 
 The complete client boundary is in
 [`docs/integrations/sessiondock.md`](docs/integrations/sessiondock.md).

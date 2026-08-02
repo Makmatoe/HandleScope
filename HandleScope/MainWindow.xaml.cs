@@ -1,9 +1,11 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
+using HandleScope.Compatibility;
 using HandleScope.Models;
 using HandleScope.Services;
 
@@ -16,8 +18,10 @@ public partial class MainWindow : Window
     private readonly ProcessService _processService;
     private readonly ObservableCollection<ProcessRow> _processes = [];
     private readonly ProcessIdentity _currentIdentity;
+    private readonly ApiCompatibilityPreferenceStore _compatibilityStore = new();
     private CancellationTokenSource? _scanCancellation;
     private bool _isBusy;
+    private bool _loadingCompatibilityPreference;
 
     public MainWindow()
     {
@@ -47,8 +51,64 @@ public partial class MainWindow : Window
             return;
         }
 
+        LoadCompatibilityPreference();
+        RuntimeVersionText.Text =
+            $"HandleScope {GetType().Assembly.GetName().Version?.ToString(3) ?? "unknown"}";
         await RefreshProcessesAsync();
         StatusText.Text = "Ready · same-user, same-session processes only";
+    }
+
+    private void LoadCompatibilityPreference()
+    {
+        _loadingCompatibilityPreference = true;
+        try
+        {
+            var result = _compatibilityStore.Read();
+            var tag = ApiCompatibilityPolicy.ToStorageValue(result.Mode);
+            ApiCompatibilityComboBox.SelectedItem =
+                ApiCompatibilityComboBox.Items
+                    .OfType<ComboBoxItem>()
+                    .Single(item => item.Tag?.ToString() == tag);
+            CompatibilityStatusText.Text = result.IsValid
+                ? $"Preferred {ApiCompatibilityPolicy.Resolve(result.Mode)}; v1 and v2 remain available"
+                : "Invalid preference ignored; automatic mode is active";
+        }
+        finally
+        {
+            _loadingCompatibilityPreference = false;
+        }
+    }
+
+    private void ApiCompatibilityComboBox_SelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        if (_loadingCompatibilityPreference ||
+            ApiCompatibilityComboBox.SelectedItem is not ComboBoxItem item ||
+            !ApiCompatibilityPolicy.TryParseStorageValue(
+                item.Tag?.ToString(),
+                out var mode))
+        {
+            return;
+        }
+
+        try
+        {
+            _compatibilityStore.Write(mode);
+            CompatibilityStatusText.Text =
+                $"Preferred {ApiCompatibilityPolicy.Resolve(mode)} after the API restarts; v1 and v2 remain available";
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or
+                InvalidOperationException or NotSupportedException or
+                ArgumentException)
+        {
+            CompatibilityStatusText.Text = "Compatibility preference was not changed";
+            ShowError(
+                "Could not save the SessionDock API compatibility preference.",
+                exception);
+            LoadCompatibilityPreference();
+        }
     }
 
     private async void RefreshProcesses_Click(object sender, RoutedEventArgs e) =>

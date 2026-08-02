@@ -6,6 +6,24 @@ Notable user-visible and security-relevant changes are documented here.
 
 - No changes yet.
 
+## 0.2.0 - 2026-08-02
+
+- Preserved the exact five-field v1 discovery document, exact three-field v1
+  health response, and all v1 close/shutdown behavior for existing clients.
+- Added authenticated compatibility metadata and equivalent, precompiled v2
+  health, close, and shutdown routes so reviewed clients can negotiate the
+  highest mutually supported contract without accepting server-defined paths or
+  schemas.
+- Added a desktop API compatibility selector with automatic, v2, and legacy v1
+  modes. Both protocols remain available; the choice only changes the preferred
+  contract advertised to new clients after the API restarts.
+- Added strict, per-user compatibility preference storage, an installed runtime
+  manifest, and an immutable per-release compatibility manifest binding the
+  package, API executable, supported protocols, policy, and capabilities.
+- Expanded integration and release verification to prove v1/v2 interoperability,
+  legacy preference fallback, manifest identity, checksum coverage, and the
+  revised ten-file installed API inventory.
+
 ## 0.1.4 - 2026-08-02
 
 - Authorized a narrowly bounded SessionDock managed-setup path only after an

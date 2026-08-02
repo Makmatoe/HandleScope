@@ -6,10 +6,11 @@ branch push and a manually dispatched workflow cannot publish a release.
 
 The selected no-cost trust model is intentionally transparent: HandleScope is
 not Authenticode-signed. The release workflow instead produces an exact
-portable ZIP, a SHA-256 manifest, an SPDX 2.3 SBOM, and GitHub artifact
-attestations. It uses no certificate, external signing account, paid service,
-long-lived credential, or repository secret. Users must verify downloads and
-may see **Unknown publisher** or SmartScreen warnings on Windows.
+portable ZIP, a SHA-256 manifest, an SPDX 2.3 SBOM, an immutable compatibility
+manifest, and GitHub artifact attestations. It uses no certificate, external
+signing account, paid service, long-lived credential, or repository secret.
+Users must verify downloads and may see **Unknown publisher** or SmartScreen
+warnings on Windows.
 
 ## One-time repository configuration
 
@@ -65,22 +66,24 @@ reviewer. The environment requires no variables and no secrets.
 
 ### SessionDock managed-setup contract
 
-HandleScope v0.1.4 introduces an explicitly reviewed client delivery boundary;
+HandleScope v0.2.0 introduces an immutable per-release compatibility manifest;
 it does not grant a floating authorization to future HandleScope or SessionDock
-versions. Before a compatible SessionDock release changes its pin, review its
+versions. Before a compatible SessionDock release adds a catalog entry, verify
+the manifest against the public assets, then review SessionDock's signed catalog
+sequence and validity, compatible version range, compiled protocol adapters,
 confirmation, canonical asset URLs, fixed sizes and SHA-256 hashes, redirect
 allowlist, streamed bounds, checksum parsing, ZIP and internal inventory
 validation, installer arguments, PowerShell policy scope, standard-user token,
-cancellation behavior, and separate integration opt-in against
+cancellation behavior, downgrade refusal, and separate integration opt-in against
 [`integrations/sessiondock.md`](integrations/sessiondock.md).
 
-Record the new HandleScope tag, protected-main source commit, ZIP and checksum
-asset names, lengths, and SHA-256 hashes, extracted API executable length and
-SHA-256 hash, SBOM identity, release immutability, and successful artifact
-attestation verification. A SessionDock pin may be updated only after the new
-HandleScope release is public and these values have been independently checked.
-Never revise the contract of an existing immutable release to authorize a
-client retroactively.
+Record the new HandleScope tag, protected-main source commit, ZIP, checksum,
+release-manifest asset names, lengths, and SHA-256 hashes, extracted API
+executable length and SHA-256 hash, protocol/capability lists, SBOM identity,
+release immutability, and successful artifact attestation verification. A
+SessionDock catalog may be updated only after the new HandleScope release is
+public and these values have been independently checked. Never revise the
+contract of an existing immutable release to authorize a client retroactively.
 
 No cryptographic tag key is required. Repository and tag rules determine who
 may create release tags, while the GitHub attestation binds each asset to the
@@ -98,8 +101,9 @@ The tag-triggered workflow:
    executables without debug symbols and records their embedded .NET runtime
    components;
 4. enforces an exact release inventory, creates `CONTENTS.sha256`, the ZIP,
-   external SHA-256 manifest, and SPDX SBOM, then verifies them independently;
-5. transfers only those three verified assets to the protected `release` job;
+   external SHA-256 manifest, SPDX SBOM, and immutable compatibility manifest,
+   then verifies them independently;
+5. transfers only those four verified assets to the protected `release` job;
 6. creates a new draft release, refusing to reuse any existing draft or release
    for the tag;
 7. uploads and redownloads the draft assets, compares them byte for byte, and
@@ -118,8 +122,9 @@ workflow never clobbers assets.
 
 ## Verification and rollback
 
-Users should download the ZIP, SBOM, and `SHA256SUMS.txt` from the same release
-and follow [`VERIFY_DOWNLOAD.md`](VERIFY_DOWNLOAD.md) before execution.
+Users should download the ZIP, SBOM, compatibility manifest, and
+`SHA256SUMS.txt` from the same release and follow
+[`VERIFY_DOWNLOAD.md`](VERIFY_DOWNLOAD.md) before execution.
 
 If a release is suspected of compromise, make it unavailable without reusing,
 moving, or deleting its tag, publish a private security advisory, and issue a

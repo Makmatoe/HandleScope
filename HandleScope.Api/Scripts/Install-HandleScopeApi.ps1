@@ -12,6 +12,7 @@ $ErrorActionPreference = 'Stop'
 
 $firstPartyFiles = @(
     'HandleScope.Api.exe',
+    'HandleScope.runtime.json',
     'Enable-SessionDockIntegration.ps1',
     'HandleScope.ScriptCommon.ps1',
     'Install-HandleScopeApi.ps1',
@@ -57,7 +58,7 @@ foreach ($fileName in $firstPartyFiles) {
 
 $sourceItems = @($sourceDirectory.GetFileSystemInfos())
 if ($sourceItems.Count -ne $expectedSourceFileNames.Count) {
-    throw 'The API release directory does not match the fixed nine-file allowlist.'
+    throw 'The API release directory does not match the fixed ten-file allowlist.'
 }
 $sourceFiles = [Collections.Generic.List[IO.FileInfo]]::new()
 foreach ($sourceItem in $sourceItems) {

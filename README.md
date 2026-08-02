@@ -104,10 +104,12 @@ that file for every operation; they must never hard-code the port, retain the
 token, follow redirects, use a proxy, or send the token off-machine.
 
 The API refuses to start under an elevated token, a Windows service account, or
-session 0. It exposes only health, strict Roblox singleton close, and
-authenticated shutdown endpoints. See [`API.md`](API.md) for the exact v1
-contract and [`docs/integrations/sessiondock.md`](docs/integrations/sessiondock.md)
-for the SessionDock client boundary.
+session 0. It exposes only health, strict Roblox singleton close, authenticated
+compatibility metadata, and authenticated shutdown endpoints. The exact legacy
+v1 contract remains available; v2 is an additive, equivalent adapter. See
+[`API.md`](API.md) and
+[`docs/integrations/sessiondock.md`](docs/integrations/sessiondock.md) for the
+complete client boundary.
 
 The recommended install command above explicitly opts SessionDock in. To enable
 the integration separately later, run:
@@ -125,11 +127,14 @@ application, copy a token, or modify account data, and it refuses to replace a
 non-minimal canonical setting unless the user explicitly re-runs it with
 `-Force`.
 
-Starting with HandleScope v0.1.4, a compatible SessionDock release may also
-offer a managed setup after a version-specific confirmation. That path must pin
-and verify one immutable official release, run only as the standard user, and
-clearly disclose immediate API startup and limited per-user autostart. It never
-bundles HandleScope or enables the integration automatically. See the
+Starting with HandleScope v0.2.0, a compatible SessionDock release may also
+offer a version selector backed by its signed, rollback-resistant compatibility
+catalog. That catalog can choose only reviewed immutable assets and API adapters
+compiled into SessionDock. Every installation still requires a
+version-specific confirmation, runs only as the standard user, and clearly
+discloses immediate API startup and limited per-user autostart. Automatic mode
+updates a recommendation only; it never installs, bundles HandleScope, enables
+the integration, or downgrades an installed release. See the
 [complete managed-setup boundary](docs/integrations/sessiondock.md#user-control-boundary).
 
 ## Repository layout
@@ -171,8 +176,9 @@ Release publication is fail-closed: it requires a version-matched annotated tag
 at protected `main`, pinned CI actions, locked restore, the controlled test
 harness, exact file inventories, checksums, an SPDX SBOM, and GitHub build
 provenance. No certificate, paid signing service, or repository secret is
-required. HandleScope has no in-app updater; users choose when to download,
-verify, and install a newer release.
+required. HandleScope has no silent in-app updater; users choose when to
+download, verify, and install a release. The desktop API selector changes only
+the protocol preference advertised after restart and keeps v1 and v2 available.
 
 ## License
 
