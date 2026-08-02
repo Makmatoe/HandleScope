@@ -295,10 +295,21 @@ try {
     if ($LASTEXITCODE -ne 0 -or $sourceRevision -cnotmatch '^[0-9a-f]{40}$') {
         throw 'Unable to resolve the source revision for release metadata.'
     }
-    $sourceTimestamp = (& git show -s --format=%cI HEAD).Trim()
+    $sourceTimestampText = (& git show -s --format=%cI HEAD).Trim()
     if ($LASTEXITCODE -ne 0) {
         throw 'Unable to resolve the source timestamp for release metadata.'
     }
+    $sourceTimestampValue = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse(
+            $sourceTimestampText,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind,
+            [ref]$sourceTimestampValue)) {
+        throw 'The source timestamp is not a valid Git commit timestamp.'
+    }
+    $sourceTimestamp = $sourceTimestampValue.ToUniversalTime().ToString(
+        'O',
+        [Globalization.CultureInfo]::InvariantCulture)
 
     $metadata = [ordered]@{
         schemaVersion = 1

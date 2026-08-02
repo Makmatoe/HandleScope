@@ -71,6 +71,41 @@ function Get-RelativeSlashPath {
         $baseUri.MakeRelativeUri($targetUri).ToString()).Replace('\', '/')
 }
 
+function Get-CanonicalJsonUtcTimestamp {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Json,
+
+        [Parameter(Mandatory)]
+        [string]$PropertyName,
+
+        [Parameter(Mandatory)]
+        [string]$Description
+    )
+
+    $pattern = '(?m)^\s*"' + [regex]::Escape($PropertyName) +
+        '"\s*:\s*"(?<value>[^"\\\r\n]+)"\s*,?\s*$'
+    $matches = [regex]::Matches($Json, $pattern)
+    if ($matches.Count -ne 1) {
+        throw "$Description must contain exactly one unescaped JSON timestamp string."
+    }
+    $value = $matches[0].Groups['value'].Value
+    $timestamp = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParseExact(
+            $value,
+            'O',
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind,
+            [ref]$timestamp) -or
+        $timestamp.Offset -ne [TimeSpan]::Zero -or
+        $value -cne $timestamp.ToUniversalTime().ToString(
+            'O',
+            [Globalization.CultureInfo]::InvariantCulture)) {
+        throw "$Description timestamp is not canonical UTC round-trip text."
+    }
+    return $value
+}
+
 $releaseDirectory = [IO.Path]::GetFullPath($Directory)
 if (-not (Test-Path -LiteralPath $releaseDirectory -PathType Container)) {
     throw "Release directory not found: $releaseDirectory"
@@ -317,8 +352,12 @@ try {
         'handlescope.policy.roblox-singleton-event.v1'
     )
     $runtimeManifestPath = Join-Path $bundleRoot 'api\HandleScope.runtime.json'
-    $runtimeManifest = Get-Content -LiteralPath $runtimeManifestPath -Raw |
-        ConvertFrom-Json
+    $runtimeManifestJson = [IO.File]::ReadAllText($runtimeManifestPath)
+    $runtimeSourceTimestampText = Get-CanonicalJsonUtcTimestamp `
+        -Json $runtimeManifestJson `
+        -PropertyName 'sourceTimestamp' `
+        -Description 'Installed runtime manifest'
+    $runtimeManifest = $runtimeManifestJson | ConvertFrom-Json
     Assert-ExactList `
         -Expected @(
             'schemaVersion', 'product', 'repository', 'version', 'tag',
@@ -351,8 +390,9 @@ try {
         throw 'Installed runtime manifest source revision is invalid.'
     }
     $runtimeSourceTimestamp = [DateTimeOffset]::MinValue
-    if (-not [DateTimeOffset]::TryParse(
-            [string]($runtimeManifest.sourceTimestamp),
+    if (-not [DateTimeOffset]::TryParseExact(
+            $runtimeSourceTimestampText,
+            'O',
             [Globalization.CultureInfo]::InvariantCulture,
             [Globalization.DateTimeStyles]::RoundtripKind,
             [ref]$runtimeSourceTimestamp)) {
@@ -371,8 +411,12 @@ try {
         -Actual @($runtimeManifest.capabilities) `
         -Description 'Installed runtime capabilities'
 
-    $releaseManifest = Get-Content -LiteralPath $releaseManifestPath -Raw |
-        ConvertFrom-Json
+    $releaseManifestJson = [IO.File]::ReadAllText($releaseManifestPath)
+    $releaseSourceTimestampText = Get-CanonicalJsonUtcTimestamp `
+        -Json $releaseManifestJson `
+        -PropertyName 'sourceTimestamp' `
+        -Description 'External release manifest'
+    $releaseManifest = $releaseManifestJson | ConvertFrom-Json
     Assert-ExactList `
         -Expected @(
             'schemaVersion', 'product', 'repository', 'version', 'tag',
@@ -392,7 +436,7 @@ try {
         $releaseManifest.discoveryApiVersion -cne 'v1' -or
         $releaseManifest.preferredApiVersion -cne 'v2' -or
         $releaseManifest.sourceRevision -cne $runtimeManifest.sourceRevision -or
-        $releaseManifest.sourceTimestamp -cne $runtimeManifest.sourceTimestamp) {
+        $releaseSourceTimestampText -cne $runtimeSourceTimestampText) {
         throw 'External release manifest identity is invalid.'
     }
     Assert-ExactList `

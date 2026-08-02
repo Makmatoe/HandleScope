@@ -85,13 +85,13 @@ a stale file is not proof that the API is available.
 
 ## Compatibility negotiation
 
-HandleScope 0.2.1 adds authenticated `GET /v1/metadata`. This additive endpoint
+HandleScope 0.2.2 adds authenticated `GET /v1/metadata`. This additive endpoint
 does not change discovery or the legacy health document. Its exact response is:
 
 ```json
 {
   "schemaVersion": 1,
-  "productVersion": "0.2.1",
+  "productVersion": "0.2.2",
   "discoveryApiVersion": "v1",
   "supportedApiVersions": ["v1", "v2"],
   "preferredApiVersion": "v2",
