@@ -6,7 +6,7 @@ Notable user-visible and security-relevant changes are documented here.
 
 - No changes yet.
 
-## 0.2.0 - 2026-08-02
+## 0.2.1 - 2026-08-02
 
 - Preserved the exact five-field v1 discovery document, exact three-field v1
   health response, and all v1 close/shutdown behavior for existing clients.
@@ -23,6 +23,15 @@ Notable user-visible and security-relevant changes are documented here.
 - Expanded integration and release verification to prove v1/v2 interoperability,
   legacy preference fallback, manifest identity, checksum coverage, and the
   revised ten-file installed API inventory.
+- Reworked installed-runtime manifest verification into explicit typed checks
+  that behave consistently in Windows PowerShell and PowerShell 7 release jobs.
+
+## 0.2.0 - 2026-08-02
+
+- The tag was validated and built, but its publication failed closed during
+  independent installed-runtime manifest verification. No 0.2.0 release or
+  assets were published; 0.2.1 contains the same reviewed feature set plus the
+  release-verifier correction.
 
 ## 0.1.4 - 2026-08-02
 

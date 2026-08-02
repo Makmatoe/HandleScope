@@ -326,8 +326,8 @@ try {
         capabilities = @(
             'handlescope.http.v1',
             'handlescope.http.v2',
-            'handlescope.policy.roblox-singleton-event.v1',
-            'handlescope.plan.single-use.v1'
+            'handlescope.plan.single-use.v1',
+            'handlescope.policy.roblox-singleton-event.v1'
         )
     }
     Write-Utf8NoBom `

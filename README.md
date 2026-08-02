@@ -127,7 +127,7 @@ application, copy a token, or modify account data, and it refuses to replace a
 non-minimal canonical setting unless the user explicitly re-runs it with
 `-Force`.
 
-Starting with HandleScope v0.2.0, a compatible SessionDock release may also
+Starting with HandleScope v0.2.1, a compatible SessionDock release may also
 offer a version selector backed by its signed, rollback-resistant compatibility
 catalog. That catalog can choose only reviewed immutable assets and API adapters
 compiled into SessionDock. Every installation still requires a

@@ -41,6 +41,7 @@ $requiredPaths = @(
     'ReleaseNotes\0.1.3.md'
     'ReleaseNotes\0.1.4.md'
     'ReleaseNotes\0.2.0.md'
+    'ReleaseNotes\0.2.1.md'
     'scripts\Finalize-Release.ps1'
     'scripts\Publish-Release.ps1'
     'scripts\Test-PowerShellCompatibility.ps1'
@@ -549,7 +550,7 @@ $sessionDockContractPath = Join-Path `
 if (Test-Path -LiteralPath $sessionDockContractPath -PathType Leaf) {
     $sessionDockContract = [IO.File]::ReadAllText($sessionDockContractPath)
     $requiredManagedSetupControls = @(
-        'Starting with HandleScope v0.2.0',
+        'Starting with HandleScope v0.2.1',
         'canonical `Makmatoe/SessionDock` repository',
         'dedicated user action opens a confirmation',
         'continuing will download, install or',
