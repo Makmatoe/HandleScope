@@ -385,20 +385,36 @@ try
             }
 
             var metadataResponse = await client.GetAsync("/v1/metadata");
-            using (var metadataDocument = JsonDocument.Parse(
-                       await metadataResponse.Content.ReadAsStringAsync()))
+            var metadataJson = await metadataResponse.Content.ReadAsStringAsync();
+            using (var metadataDocument = JsonDocument.Parse(metadataJson))
             {
                 var metadata = metadataDocument.RootElement;
                 if (!metadataResponse.IsSuccessStatusCode ||
+                    metadata.GetPropertyCount() != 7 ||
                     metadata.GetProperty("schemaVersion").GetInt32() != 1 ||
                     metadata.GetProperty("discoveryApiVersion").GetString() != "v1" ||
                     metadata.GetProperty("preferredApiVersion").GetString() != "v2" ||
+                    !metadata.GetProperty("supportedApiVersions")
+                        .EnumerateArray()
+                        .Select(item => item.GetString())
+                        .SequenceEqual(new[] { "v1", "v2" }) ||
+                    !metadata.GetProperty("policies")
+                        .EnumerateArray()
+                        .Select(item => item.GetString())
+                        .SequenceEqual(new[] { "controlled-test-v1" }) ||
                     !metadata.GetProperty("capabilities")
                         .EnumerateArray()
-                        .Any(item => item.GetString() == "handlescope.http.v2"))
+                        .Select(item => item.GetString())
+                        .SequenceEqual(new[]
+                        {
+                            "handlescope.http.v1",
+                            "handlescope.http.v2",
+                            "handlescope.plan.single-use.v1",
+                            "handlescope.policy.roblox-singleton-event.v1"
+                        }))
                 {
                     throw new InvalidOperationException(
-                        "The authenticated API metadata response is incomplete.");
+                        $"The authenticated API metadata response is incomplete: {metadataJson}");
                 }
             }
 

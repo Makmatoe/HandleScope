@@ -313,8 +313,8 @@ try {
     $expectedCapabilities = @(
         'handlescope.http.v1',
         'handlescope.http.v2',
-        'handlescope.policy.roblox-singleton-event.v1',
-        'handlescope.plan.single-use.v1'
+        'handlescope.plan.single-use.v1',
+        'handlescope.policy.roblox-singleton-event.v1'
     )
     $runtimeManifestPath = Join-Path $bundleRoot 'api\HandleScope.runtime.json'
     $runtimeManifest = Get-Content -LiteralPath $runtimeManifestPath -Raw |
@@ -328,17 +328,35 @@ try {
         ) `
         -Actual @($runtimeManifest.PSObject.Properties.Name) `
         -Description 'Installed runtime manifest fields'
-    if ($runtimeManifest.schemaVersion -ne 1 -or
-        $runtimeManifest.product -cne 'HandleScope.Api' -or
-        $runtimeManifest.repository -cne 'Makmatoe/HandleScope' -or
-        $runtimeManifest.version -cne $Version -or
-        $runtimeManifest.tag -cne "v$Version" -or
-        $runtimeManifest.runtime -cne 'win-x64' -or
-        $runtimeManifest.discoveryApiVersion -cne 'v1' -or
-        $runtimeManifest.preferredApiVersion -cne 'v2' -or
-        [string]$runtimeManifest.sourceRevision -cnotmatch '^[0-9a-f]{40}$' -or
-        [string]$runtimeManifest.sourceTimestamp -cnotmatch '^\d{4}-\d{2}-\d{2}T') {
-        throw 'Installed runtime manifest identity is invalid.'
+    if ([int]$runtimeManifest.schemaVersion -ne 1) {
+        throw 'Installed runtime manifest schema version is invalid.'
+    }
+    $expectedRuntimeIdentity = [ordered]@{
+        product = 'HandleScope.Api'
+        repository = 'Makmatoe/HandleScope'
+        version = $Version
+        tag = "v$Version"
+        runtime = 'win-x64'
+        discoveryApiVersion = 'v1'
+        preferredApiVersion = 'v2'
+    }
+    foreach ($identityField in $expectedRuntimeIdentity.Keys) {
+        $actualIdentityValue = [string]($runtimeManifest.$identityField)
+        if ($actualIdentityValue -cne $expectedRuntimeIdentity[$identityField]) {
+            throw "Installed runtime manifest identity field is invalid: $identityField"
+        }
+    }
+    $runtimeSourceRevision = [string]($runtimeManifest.sourceRevision)
+    if ($runtimeSourceRevision -cnotmatch '^[0-9a-f]{40}$') {
+        throw 'Installed runtime manifest source revision is invalid.'
+    }
+    $runtimeSourceTimestamp = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse(
+            [string]($runtimeManifest.sourceTimestamp),
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind,
+            [ref]$runtimeSourceTimestamp)) {
+        throw 'Installed runtime manifest source timestamp is invalid.'
     }
     Assert-ExactList `
         -Expected $expectedApiVersions `

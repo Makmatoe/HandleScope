@@ -66,7 +66,7 @@ reviewer. The environment requires no variables and no secrets.
 
 ### SessionDock managed-setup contract
 
-HandleScope v0.2.0 introduces an immutable per-release compatibility manifest;
+HandleScope v0.2.1 introduces an immutable per-release compatibility manifest;
 it does not grant a floating authorization to future HandleScope or SessionDock
 versions. Before a compatible SessionDock release adds a catalog entry, verify
 the manifest against the public assets, then review SessionDock's signed catalog

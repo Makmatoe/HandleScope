@@ -106,7 +106,7 @@ Roblox singleton policy and client contract.
 
 [SessionDock](https://github.com/Makmatoe/SessionDock) remains a separate
 download and HandleScope is never bundled inside it. Starting with HandleScope
-v0.2.0, a compatible SessionDock release may offer automatic, keep-installed,
+v0.2.1, a compatible SessionDock release may offer automatic, keep-installed,
 and exact version choices backed by its signed compatibility catalog. The
 catalog binds each approved immutable package, checksum, release manifest, API
 executable, protocol set, capability set, and SessionDock version range. Every
