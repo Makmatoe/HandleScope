@@ -1,7 +1,8 @@
 # Verify a HandleScope download
 
-Download the ZIP, matching `.spdx.json`, and `SHA256SUMS.txt` from the same
-published [HandleScope GitHub release](https://github.com/Makmatoe/HandleScope/releases).
+Download the ZIP, matching `.spdx.json`, matching `.release.json`, and
+`SHA256SUMS.txt` from the same published
+[HandleScope GitHub release](https://github.com/Makmatoe/HandleScope/releases).
 Do not install files copied from an issue, pull request, chat attachment,
 mirror, or workflow-artifact page.
 
@@ -33,9 +34,11 @@ $version = $Matches.version
 $tag = "v$version"
 $assetBaseName = "HandleScope-$version-win-x64"
 $sbomName = "$assetBaseName.spdx.json"
+$releaseManifestName = "$assetBaseName.release.json"
 if (-not (Test-Path -LiteralPath $sbomName -PathType Leaf) -or
+    -not (Test-Path -LiteralPath $releaseManifestName -PathType Leaf) -or
     -not (Test-Path -LiteralPath 'SHA256SUMS.txt' -PathType Leaf)) {
-  throw 'The matching SBOM or SHA256SUMS.txt is missing.'
+  throw 'The matching SBOM, release manifest, or SHA256SUMS.txt is missing.'
 }
 ```
 
@@ -61,7 +64,8 @@ gh release verify-asset $tag $zip.FullName `
 
 ## 2. Verify the SHA-256 manifest
 
-Compare the ZIP and SBOM hashes with their exact lines in `SHA256SUMS.txt`:
+Compare the ZIP, SBOM, and release-manifest hashes with their exact lines in
+`SHA256SUMS.txt`:
 
 ```powershell
 $expected = @{}
@@ -75,7 +79,8 @@ Get-Content .\SHA256SUMS.txt | ForEach-Object {
 
 foreach ($name in @(
   $zip.Name,
-  $sbomName)) {
+  $sbomName,
+  $releaseManifestName)) {
   if (-not $expected.ContainsKey($name)) { throw "Missing checksum entry: $name" }
   $actual = (Get-FileHash -LiteralPath $name -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($actual -cne $expected[$name]) { throw "SHA-256 mismatch: $name" }

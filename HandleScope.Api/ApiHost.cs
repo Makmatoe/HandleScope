@@ -3,6 +3,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using HandleScope.Compatibility;
 using HandleScope.Models;
 using HandleScope.Services;
 using Microsoft.AspNetCore.Http.Json;
@@ -13,7 +14,8 @@ public sealed record ApiRuntimeOptions(
     int Port,
     string Token,
     IHandleAutomationPolicy? Policy = null,
-    TimeProvider? TimeProvider = null);
+    TimeProvider? TimeProvider = null,
+    ApiCompatibilityMode CompatibilityMode = ApiCompatibilityMode.Automatic);
 
 internal sealed record CandidateAuthorizationResult(
     IReadOnlyList<ProcessIdentity> Authorized,
@@ -101,7 +103,8 @@ public static class ApiHost
                 return;
             }
 
-            if (context.Request.Path.Equals("/v1/health"))
+            if (context.Request.Path.Equals("/v1/health") ||
+                context.Request.Path.Equals("/v2/health"))
             {
                 await next();
                 return;
@@ -135,9 +138,48 @@ public static class ApiHost
                 apiVersion = "v1",
                 policy = policy.PolicyId
             }));
+        app.MapGet(
+            "/v2/health",
+            (IHandleAutomationPolicy policy) => Results.Ok(new
+            {
+                status = "ready",
+                apiVersion = ApiCompatibilityPolicy.CurrentApiVersion,
+                policy = policy.PolicyId,
+                productVersion = ProductVersion,
+                supportedApiVersions = ApiCompatibilityPolicy.SupportedApiVersions,
+                preferredApiVersion = ApiCompatibilityPolicy.Resolve(
+                    options.CompatibilityMode)
+            }));
+        app.MapGet(
+            "/v1/metadata",
+            (IHandleAutomationPolicy policy) => Results.Ok(new
+            {
+                schemaVersion = 1,
+                productVersion = ProductVersion,
+                discoveryApiVersion = ApiCompatibilityPolicy.DiscoveryApiVersion,
+                supportedApiVersions = ApiCompatibilityPolicy.SupportedApiVersions,
+                preferredApiVersion = ApiCompatibilityPolicy.Resolve(
+                    options.CompatibilityMode),
+                policies = new[] { policy.PolicyId },
+                capabilities = new[]
+                {
+                    "handlescope.http.v1",
+                    "handlescope.http.v2",
+                    "handlescope.policy.roblox-singleton-event.v1",
+                    "handlescope.plan.single-use.v1"
+                }
+            }));
         app.MapPost("/v1/handles/close", CloseHandlesAsync);
+        app.MapPost("/v2/handles/close", CloseHandlesAsync);
         app.MapPost(
             "/v1/shutdown",
+            (IHostApplicationLifetime lifetime) =>
+            {
+                lifetime.StopApplication();
+                return Results.Accepted();
+            });
+        app.MapPost(
+            "/v2/shutdown",
             (IHostApplicationLifetime lifetime) =>
             {
                 lifetime.StopApplication();
@@ -146,6 +188,9 @@ public static class ApiHost
 
         return app;
     }
+
+    private static string ProductVersion =>
+        typeof(ApiHost).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
     private static async Task<IResult> CloseHandlesAsync(
         HttpContext context,

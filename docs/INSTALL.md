@@ -64,7 +64,7 @@ Omit `-EnableAutostart` if the API should not start automatically at sign-in,
 and omit `-EnableSessionDock` if SessionDock should not be opted in. Both
 options are explicit; neither is enabled silently.
 
-The installer independently requires the fixed nine-file API inventory,
+The installer independently requires the fixed ten-file API inventory,
 rejects linked source paths, checks manifest hashes, stages and re-verifies the
 replacement, and installs it at:
 
@@ -106,13 +106,18 @@ Roblox singleton policy and client contract.
 
 [SessionDock](https://github.com/Makmatoe/SessionDock) remains a separate
 download and HandleScope is never bundled inside it. Starting with HandleScope
-v0.1.4, a compatible SessionDock release may offer a user-confirmed managed
-setup that pins and independently verifies this exact official release before
-running the unmodified installer as the standard user. Its confirmation must
-disclose that setup starts the API and enables limited per-user autostart. It
-must not enable the integration automatically, elevate, use `Bypass` or
-`Unrestricted`, change saved PowerShell policy, override Group Policy, or
-perform silent lifecycle actions. The exact required client controls are in
+v0.2.0, a compatible SessionDock release may offer automatic, keep-installed,
+and exact version choices backed by its signed compatibility catalog. The
+catalog binds each approved immutable package, checksum, release manifest, API
+executable, protocol set, capability set, and SessionDock version range. Every
+actual installation still requires a version-specific confirmation and complete
+verification before the unmodified installer runs as the standard user. Its
+confirmation must disclose that setup starts the API and enables limited
+per-user autostart. Automatic selection changes a recommendation only and never
+installs or downgrades. SessionDock must not enable the integration
+automatically, elevate, use `Bypass` or `Unrestricted`, change saved PowerShell
+policy, override Group Policy, or perform silent lifecycle actions. The exact
+required client controls are in
 [`integrations/sessiondock.md`](integrations/sessiondock.md).
 
 For manual setup, `-EnableSessionDock` on the install command is the easiest

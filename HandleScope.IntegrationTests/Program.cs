@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using HandleScope.Api;
+using HandleScope.Compatibility;
 using HandleScope.Models;
 using HandleScope.Services;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -83,6 +84,7 @@ catch (ArgumentException)
 VerifyDryRunPlanIsolationAndExpiry();
 VerifyAuthorizedProcessCap();
 VerifyDeterministicExecutableVerifier();
+VerifyApiCompatibilityPreferenceStore();
 
 using var target = Process.Start(new ProcessStartInfo
 {
@@ -351,9 +353,66 @@ try
                 throw new InvalidOperationException(
                     "The health response did not identify the active restricted policy.");
             }
+            using (var healthDocument = JsonDocument.Parse(healthJson))
+            {
+                var health = healthDocument.RootElement;
+                if (health.GetPropertyCount() != 3 ||
+                    health.GetProperty("status").GetString() != "ready" ||
+                    health.GetProperty("apiVersion").GetString() != "v1" ||
+                    health.GetProperty("policy").GetString() != controlledPolicy.PolicyId)
+                {
+                    throw new InvalidOperationException(
+                        "The legacy v1 health response shape changed.");
+                }
+            }
+
+            var v2HealthResponse = await client.GetAsync("/v2/health");
+            using (var v2HealthDocument = JsonDocument.Parse(
+                       await v2HealthResponse.Content.ReadAsStringAsync()))
+            {
+                var health = v2HealthDocument.RootElement;
+                if (!v2HealthResponse.IsSuccessStatusCode ||
+                    health.GetProperty("apiVersion").GetString() != "v2" ||
+                    health.GetProperty("preferredApiVersion").GetString() != "v2" ||
+                    !health.GetProperty("supportedApiVersions")
+                        .EnumerateArray()
+                        .Select(item => item.GetString())
+                        .SequenceEqual(new[] { "v1", "v2" }))
+                {
+                    throw new InvalidOperationException(
+                        "The v2 health response did not advertise the reviewed adapters.");
+                }
+            }
+
+            var metadataResponse = await client.GetAsync("/v1/metadata");
+            using (var metadataDocument = JsonDocument.Parse(
+                       await metadataResponse.Content.ReadAsStringAsync()))
+            {
+                var metadata = metadataDocument.RootElement;
+                if (!metadataResponse.IsSuccessStatusCode ||
+                    metadata.GetProperty("schemaVersion").GetInt32() != 1 ||
+                    metadata.GetProperty("discoveryApiVersion").GetString() != "v1" ||
+                    metadata.GetProperty("preferredApiVersion").GetString() != "v2" ||
+                    !metadata.GetProperty("capabilities")
+                        .EnumerateArray()
+                        .Any(item => item.GetString() == "handlescope.http.v2"))
+                {
+                    throw new InvalidOperationException(
+                        "The authenticated API metadata response is incomplete.");
+                }
+            }
 
             using (var unauthenticatedClient = new HttpClient { BaseAddress = new Uri(apiUrl) })
             {
+                var metadataWithoutToken = await unauthenticatedClient.GetAsync(
+                    "/v1/metadata");
+                if (metadataWithoutToken.StatusCode !=
+                    System.Net.HttpStatusCode.Unauthorized)
+                {
+                    throw new InvalidOperationException(
+                        "The API exposed compatibility metadata without its bearer token.");
+                }
+
                 var unauthorizedResponse = await unauthenticatedClient.PostAsJsonAsync(
                     "/v1/handles/close",
                     CreateControlledRequest(target.Id, eventMatch, dryRun: true));
@@ -560,7 +619,7 @@ try
             }
 
             var closeResponse = await client.PostAsJsonAsync(
-                "/v1/handles/close",
+                "/v2/handles/close",
                 CreateControlledRequest(
                     target.Id,
                     eventMatch,
@@ -613,11 +672,12 @@ try
 
     Console.WriteLine(
         $"PASS: closed file {fileMatch.HandleDisplay}; verified connection JSON, authentication, " +
-        $"browser rejection, ambient-listener rejection, bounded results, strict JSON, policy confinement, " +
+        $"v1/v2 compatibility, browser rejection, ambient-listener rejection, bounded results, strict JSON, policy confinement, " +
         $"independent single-use plans, monotonic expiry, media-type confinement, trust policy, privacy redaction, " +
         $"authorized-process limits, complete responses, process identity, PID-reuse rejection, access-mask " +
         $"revalidation, and stale-handle rejection in controlled PID {target.Id}.");
 }
+
 finally
 {
     if (!target.HasExited)
@@ -627,6 +687,51 @@ finally
     }
 
     File.Delete(temporaryPath);
+}
+
+static void VerifyApiCompatibilityPreferenceStore()
+{
+    var directory = Path.Combine(
+        Path.GetTempPath(),
+        $"HandleScope-compatibility-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(directory);
+    var path = Path.Combine(directory, "compatibility.json");
+    try
+    {
+        var store = new ApiCompatibilityPreferenceStore(path);
+        var missing = store.Read();
+        if (!missing.IsValid || missing.Exists ||
+            missing.Mode != ApiCompatibilityMode.Automatic)
+        {
+            throw new InvalidOperationException(
+                "A missing compatibility preference did not select safe automatic mode.");
+        }
+
+        store.Write(ApiCompatibilityMode.V1);
+        var legacy = store.Read();
+        if (!legacy.IsValid || !legacy.Exists ||
+            legacy.Mode != ApiCompatibilityMode.V1)
+        {
+            throw new InvalidOperationException(
+                "The exact legacy compatibility preference did not round-trip.");
+        }
+
+        File.WriteAllText(
+            path,
+            "{\"schemaVersion\":1,\"mode\":\"v2\",\"unexpected\":true}");
+        var invalid = store.Read();
+        if (invalid.IsValid || !invalid.Exists ||
+            invalid.Mode != ApiCompatibilityMode.Automatic)
+        {
+            throw new InvalidOperationException(
+                "An extended compatibility preference was not rejected safely.");
+        }
+    }
+    finally
+    {
+        try { Directory.Delete(directory, recursive: true); }
+        catch { /* Test-only best effort. */ }
+    }
 }
 
 static CloseHandlesRequest CreateControlledRequest(

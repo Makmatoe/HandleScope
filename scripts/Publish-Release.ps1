@@ -291,6 +291,49 @@ try {
         throw "Release staging contains debug files: $($debugFiles.FullName -join ', ')"
     }
 
+    $sourceRevision = (& git rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or $sourceRevision -cnotmatch '^[0-9a-f]{40}$') {
+        throw 'Unable to resolve the source revision for release metadata.'
+    }
+    $sourceTimestamp = (& git show -s --format=%cI HEAD).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Unable to resolve the source timestamp for release metadata.'
+    }
+
+    $metadata = [ordered]@{
+        schemaVersion = 1
+        product = 'HandleScope'
+        repository = 'Makmatoe/HandleScope'
+        version = $Version
+        tag = "v$Version"
+        runtime = $Runtime
+        sourceRevision = $sourceRevision
+        sourceTimestamp = $sourceTimestamp
+    }
+    $runtimeManifest = [ordered]@{
+        schemaVersion = 1
+        product = 'HandleScope.Api'
+        repository = 'Makmatoe/HandleScope'
+        version = $Version
+        tag = "v$Version"
+        sourceRevision = $sourceRevision
+        sourceTimestamp = $sourceTimestamp
+        runtime = $Runtime
+        discoveryApiVersion = 'v1'
+        supportedApiVersions = @('v1', 'v2')
+        preferredApiVersion = 'v2'
+        policies = @('roblox-singleton-event-v1')
+        capabilities = @(
+            'handlescope.http.v1',
+            'handlescope.http.v2',
+            'handlescope.policy.roblox-singleton-event.v1',
+            'handlescope.plan.single-use.v1'
+        )
+    }
+    Write-Utf8NoBom `
+        -Path (Join-Path $apiRoot 'HandleScope.runtime.json') `
+        -Value (($runtimeManifest | ConvertTo-Json -Depth 5) + "`n")
+
     $lifecycleScripts = @(
         'Enable-SessionDockIntegration.ps1',
         'HandleScope.ScriptCommon.ps1',
@@ -353,7 +396,8 @@ try {
 
     $expectedFirstPartyFiles = @(
         'bundle/desktop/HandleScope.exe',
-        'bundle/api/HandleScope.Api.exe'
+        'bundle/api/HandleScope.Api.exe',
+        'bundle/api/HandleScope.runtime.json'
     ) + @(
         $lifecycleScripts |
             ForEach-Object { "bundle/api/$_" }
@@ -374,6 +418,7 @@ try {
         'THIRD_PARTY_NOTICES.md',
         'api/API.md',
         'api/HandleScope.Api.exe',
+        'api/HandleScope.runtime.json',
         'api/Enable-SessionDockIntegration.ps1',
         'api/HandleScope.ScriptCommon.ps1',
         'api/Install-HandleScopeApi.ps1',
@@ -409,25 +454,6 @@ try {
         -Path (Join-Path $outputRoot 'first-party-catalog.txt') `
         -Value (($expectedFirstPartyFiles -join "`n") + "`n")
 
-    $sourceRevision = (& git rev-parse HEAD).Trim()
-    if ($LASTEXITCODE -ne 0 -or $sourceRevision -cnotmatch '^[0-9a-f]{40}$') {
-        throw 'Unable to resolve the source revision for release metadata.'
-    }
-    $sourceTimestamp = (& git show -s --format=%cI HEAD).Trim()
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Unable to resolve the source timestamp for release metadata.'
-    }
-
-    $metadata = [ordered]@{
-        schemaVersion = 1
-        product = 'HandleScope'
-        repository = 'Makmatoe/HandleScope'
-        version = $Version
-        tag = "v$Version"
-        runtime = $Runtime
-        sourceRevision = $sourceRevision
-        sourceTimestamp = $sourceTimestamp
-    }
     Write-Utf8NoBom `
         -Path (Join-Path $outputRoot 'release-metadata.json') `
         -Value (($metadata | ConvertTo-Json -Depth 4) + "`n")

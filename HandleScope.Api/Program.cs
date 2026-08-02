@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using HandleScope.Api;
+using HandleScope.Compatibility;
 using HandleScope.Services;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
@@ -26,11 +27,18 @@ if (!instanceSemaphore.WaitOne(0))
 
 var connectionPath = ConnectionFile.DefaultPath;
 var token = ConnectionFile.CreateToken();
+var compatibilityPreference = new ApiCompatibilityPreferenceStore().Read();
+var compatibilityMode = compatibilityPreference.IsValid
+    ? compatibilityPreference.Mode
+    : ApiCompatibilityMode.Automatic;
 
 try
 {
     await using var app = ApiHost.Build(
-        new ApiRuntimeOptions(ConnectionFile.DefaultPort, token));
+        new ApiRuntimeOptions(
+            ConnectionFile.DefaultPort,
+            token,
+            CompatibilityMode: compatibilityMode));
     await app.StartAsync();
 
     var addresses = app.Services
@@ -49,7 +57,9 @@ try
             token,
             processId,
             DateTimeOffset.UtcNow));
-    ConnectionFile.AppendLog("API started in restricted standard-user mode.");
+    ConnectionFile.AppendLog(
+        "API started in restricted standard-user mode with preferred " +
+        $"{ApiCompatibilityPolicy.Resolve(compatibilityMode)} compatibility.");
 
     await app.WaitForShutdownAsync();
 }

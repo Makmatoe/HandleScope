@@ -13,7 +13,8 @@ and verify them using [`docs/VERIFY_DOWNLOAD.md`](docs/VERIFY_DOWNLOAD.md).
 
 Official releases intentionally use no Authenticode certificate or paid
 signing service. They include an exact portable ZIP, SHA-256 manifests, an SPDX
-SBOM, and GitHub artifact attestations. Verify those materials using
+SBOM, an immutable compatibility manifest, and GitHub artifact attestations.
+Verify those materials using
 [`docs/VERIFY_DOWNLOAD.md`](docs/VERIFY_DOWNLOAD.md); Windows may correctly
 label the binaries as **Unknown publisher**. The application has no
 self-updater, so installing a newer version is an explicit user action.
@@ -40,15 +41,19 @@ able to read the token and request the one allowed Roblox operation. Closing the
 allowed event may destabilize Roblox. Review the complete
 [`threat model`](docs/THREAT_MODEL.md) before integrating the API.
 
-HandleScope v0.1.4 also defines a constrained delivery boundary for compatible
-SessionDock releases. A managed setup is authorized only after a dedicated,
-version-specific user confirmation and exact verification of one immutable
-official package, its matching checksum asset, safe archive layout, and full
-internal inventory. It must run the unmodified installer as the standard user,
-verify before installing, disclose immediate startup and limited autostart, and
-leave the SessionDock opt-in separate. Elevation, silent lifecycle changes,
-mutable downloads, downgrades, `Bypass`, `Unrestricted`, saved policy changes,
-and Group Policy overrides remain outside the supported boundary.
+HandleScope v0.2.0 also defines a dynamic but constrained delivery boundary for
+compatible SessionDock releases. SessionDock may select only releases whose
+package, checksum, release manifest, installed executable, protocol contracts,
+capabilities, and SessionDock version range are bound by its signed,
+rollback-resistant compatibility catalog. A managed setup is authorized only
+after a dedicated, version-specific user confirmation and complete verification
+of the selected immutable release. It must run the unmodified installer as the
+standard user, verify before installing, disclose immediate startup and limited
+autostart, and leave the SessionDock opt-in separate. Catalog metadata cannot
+define executable API behavior; only code-reviewed local adapters can do so.
+Elevation, silent lifecycle changes, mutable unauthenticated downloads,
+downgrades, `Bypass`, `Unrestricted`, saved policy changes, and Group Policy
+overrides remain outside the supported boundary.
 
 ## Reporting a vulnerability
 

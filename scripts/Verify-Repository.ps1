@@ -40,6 +40,7 @@ $requiredPaths = @(
     'ReleaseNotes\0.1.2.md'
     'ReleaseNotes\0.1.3.md'
     'ReleaseNotes\0.1.4.md'
+    'ReleaseNotes\0.2.0.md'
     'scripts\Finalize-Release.ps1'
     'scripts\Publish-Release.ps1'
     'scripts\Test-PowerShellCompatibility.ps1'
@@ -548,11 +549,15 @@ $sessionDockContractPath = Join-Path `
 if (Test-Path -LiteralPath $sessionDockContractPath -PathType Leaf) {
     $sessionDockContract = [IO.File]::ReadAllText($sessionDockContractPath)
     $requiredManagedSetupControls = @(
-        'Starting with HandleScope v0.1.4',
+        'Starting with HandleScope v0.2.0',
         'canonical `Makmatoe/SessionDock` repository',
         'dedicated user action opens a confirmation',
         'continuing will download, install or',
-        'exact canonical Windows x64 package and checksum assets',
+        'rollback-resistant compatibility catalog',
+        'adapters already compiled into SessionDock',
+        'must never define endpoint paths',
+        'exact canonical Windows x64 package, checksum',
+        'API executable, optional HandleScope release manifest',
         'byte length, SHA-256 digest',
         'non-approved HTTPS download redirect',
         '`Content-Length` is acceptable only when the bounded stream',
@@ -565,10 +570,13 @@ if (Test-Path -LiteralPath $sessionDockContractPath -PathType Leaf) {
         'never use `Bypass` or `Unrestricted`',
         '`-StartNow -EnableAutostart` as',
         'must not pass `-EnableSessionDock`',
-        'new reviewed pin and a new',
+        '**Check versions** action',
+        'Opening the panel and **Refresh** remain local-only',
         'version-specific confirmation',
         'never embed its files, elevate it, uninstall it, downgrade it',
-        'silently update or retry an installation'
+        'silently update or retry an installation',
+        'It never passes',
+        '`-AllowDowngrade`'
     )
     foreach ($control in $requiredManagedSetupControls) {
         if ($sessionDockContract.IndexOf(
@@ -664,7 +672,7 @@ if (Test-Path -LiteralPath $installerSourcePath -PathType Leaf) {
         $dotSourceIndex -lt 0 -or
         $dotSourceIndex -le $verificationIndex -or
         $installerSource.IndexOf(
-            'fixed nine-file allowlist',
+            'fixed ten-file allowlist',
             [StringComparison]::Ordinal) -lt 0) {
         $failures.Add('Release installer must enforce the fixed source allowlist and manifest hashes before dot-sourcing common code.')
     }
