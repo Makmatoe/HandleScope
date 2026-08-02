@@ -38,9 +38,11 @@ unnamed data stream. Named streams are never copied from the release; staged and
 installed files must contain only unnamed data or setup fails closed.
 
 The API additionally refuses elevated, service-account, and session-0
-execution. It listens only on IPv4 loopback, authenticates protected endpoints
-with a rotating 256-bit token stored under the current user's protected local
-application-data directory, and enforces the compiled
+execution. It listens only on IPv4 loopback and authenticates protected
+endpoints with a rotating 256-bit token. Standalone mode stores that token under
+the current user's protected local application-data directory. SessionDock 3.0
+included mode transfers it through an inherited anonymous pipe and retains it
+only in parent/child memory. Both enforce the compiled
 `roblox-singleton-event-v1` policy. A successful five-second dry run creates a
 single-use execution plan with a random identifier that the identical execution
 request must present; process and handle identities are revalidated before
@@ -52,25 +54,26 @@ able to read the token and request the one allowed Roblox operation. Closing the
 allowed event may destabilize Roblox. Review the complete
 [`threat model`](docs/THREAT_MODEL.md) before integrating the API.
 
-HandleScope v0.2.2 defined a dynamic but constrained delivery boundary for
-compatible SessionDock releases. SessionDock may select only releases whose
-package, checksum, release manifest, installed API and native setup executable
-identities, protocol contracts, capabilities, and SessionDock version range are
-bound by its signed, rollback-resistant compatibility catalog. SessionDock
-2.9.0 and later can use HandleScope v0.3.0's capability to run the locked native
-setup executable directly after that separate release is published; only the
-separately compiled v0.1.4/v0.2.2 adapter may use
-process-scoped `RemoteSigned` for a verified legacy script. A managed setup is
-authorized only after a dedicated, version-specific user confirmation and
-complete verification of the selected immutable release. It must run as the
-standard user, verify before installing, disclose immediate startup and limited
-autostart, and leave the SessionDock opt-in separate. Catalog metadata cannot
-define executable paths, arguments, or API behavior; only code-reviewed local
-adapters can do so.
+SessionDock 3.0 synchronizes reviewed HandleScope 0.3.0 source from an immutable
+tag/commit, records the allowlisted paths and hashes in
+`SessionDock.HandleScope/handlescope-upstream.json`, and compiles it into
+`SessionDock.exe`. The included child is non-elevated, parent-owned,
+loopback-only, pipe-bootstrapped, and parent-lifetime-bound. There is no separate
+HandleScope executable, installer, PowerShell command, UAC prompt, scheduled
+task, autostart entry, update, or uninstall operation in that flow.
 
-Elevation, silent lifecycle changes, mutable unauthenticated downloads,
-downgrades, `Bypass`, `Unrestricted`, saved policy changes, and Group Policy
-overrides remain outside the supported boundary.
+**Standalone HandleScope (advanced)** remains independently installed and
+managed. SessionDock may connect to an already running compatible API after
+strict discovery, process, metadata, and policy checks, but it must never
+download, install, start, stop, update, downgrade, reconfigure, or uninstall the
+standalone application. The signed compatibility catalog remains for older
+SessionDock clients and reviewed advanced-standalone identities; it cannot
+define executable paths, arguments, endpoints, or API behavior, and the 3.0
+included flow does not execute from it.
+
+Elevation, silent standalone lifecycle changes, mutable unauthenticated
+downloads, downgrades, `Bypass`, `Unrestricted`, saved policy changes, and Group
+Policy overrides remain outside the supported boundary.
 
 ## Reporting a vulnerability
 
@@ -94,7 +97,10 @@ offered.
 Changes involving manifests or execution level, connection-file ACLs,
 authentication, process identity, executable verification, the compiled
 automation policy, dry-run plans, handle matching or closure, per-user
-installation or autostart, integrity, or release delivery require focused
-security review and the controlled integration harness. Never weaken a
+installation or autostart, included-source provenance, parent/pipe lifecycle,
+integrity, or release delivery require focused security review and the
+controlled integration harness. Shared engine changes must land in this
+repository first and be synchronized into SessionDock with matching current
+documents, license/notices/SBOM, and provenance. Never weaken a
 fail-closed release check to make publication succeed, and never test
 destructive operations against processes or files you do not own.

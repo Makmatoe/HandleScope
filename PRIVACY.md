@@ -28,8 +28,9 @@ their IDs and request bodies are not written to the lifecycle log.
 
 ## Files and local persistence
 
-Installing the API places its API and native setup executables, legacy-compatible
-lifecycle scripts, runtime manifest, and local documentation under:
+Installing the standalone API places its API and native setup executables,
+legacy-compatible lifecycle scripts, runtime manifest, and local documentation
+under:
 
 ```text
 %LOCALAPPDATA%\Programs\HandleScope\Api
@@ -79,19 +80,29 @@ troubleshooting. The PowerShell lifecycle files remain only as legacy
 compatibility wrappers. The portable desktop is removed by deleting its
 extracted release directory after the application is closed.
 
+SessionDock 3.0 included mode creates none of those installed files, runtime
+documents, or scheduled tasks. HandleScope 0.3.0 code is part of
+`SessionDock.exe`. SessionDock starts a parent-owned child, transfers bootstrap
+data through an inherited anonymous pipe, and keeps the rotating token and
+endpoint only in parent/child memory. They do not enter a connection file,
+command line, environment variable, setting, log, diagnostics/export, or UI.
+The child exits when disabled or when SessionDock exits. Removing SessionDock
+removes the included code but never deletes a separate standalone installation.
+
 ## Network behavior
 
 Released HandleScope binaries do not check for updates or contact GitHub,
 Roblox, Microsoft, the maintainer, or any other internet service. API traffic
 is limited to `127.0.0.1`, and the API's Roblox executable trust check uses
 Windows' cache-only verification mode. Downloading a release, visiting GitHub,
-building from source, a user-requested SessionDock compatibility-catalog check,
-a user-confirmed SessionDock managed download, and
-artifact-attestation or release-integrity checks performed by GitHub CLI are
-separate actions that may contact their respective services. The managed path
-is required to contact only the canonical GitHub release endpoints for its
-signed catalog and exact selected package, checksum, and optional manifest
-assets. It must not send HandleScope runtime credentials or process data.
+building from source, installing/updating SessionDock, an older SessionDock
+client's compatibility-catalog check, and artifact-attestation or
+release-integrity checks performed by GitHub CLI are separate actions that may
+contact their respective services. SessionDock 3.0's included flow makes no
+HandleScope download and sends no runtime credentials or process data to the
+internet. Selecting **Standalone HandleScope (advanced)** also performs no
+download or lifecycle action; any standalone download is initiated and managed
+by the user outside SessionDock.
 
 ## Sharing diagnostics and security reports
 

@@ -1,10 +1,10 @@
 # SessionDock integration
 
 [SessionDock](https://github.com/Makmatoe/SessionDock) is an optional,
-standard-user client of HandleScope local API v1 and v2. The applications remain
-separate repositories, downloads, installs, processes, and release channels.
-HandleScope is not bundled inside SessionDock. Existing SessionDock builds keep
-using the unchanged v1 discovery, health, and close contracts.
+standard-user client of HandleScope local API v1 and v2. SessionDock 3.0 ships
+the reviewed HandleScope 0.3.0 engine inside `SessionDock.exe` while HandleScope
+continues as an independent repository and standalone release. Existing direct
+clients retain the v1 discovery, health, and close contracts.
 
 The supported integration is a narrow **post-launch** action. After Roblox has
 started successfully, SessionDock must receive a positive launched process ID,
@@ -18,83 +18,55 @@ a general process-control extension point.
 ## User-control boundary
 
 SessionDock may call HandleScope only after the user explicitly enables the
-integration and a running API has published:
+integration. SessionDock 3.0 exposes these independent choices:
 
-```text
-%LOCALAPPDATA%\HandleScope\connection.json
-```
+| Selector | Choice | Boundary |
+| --- | --- | --- |
+| Runtime source | **Included with SessionDock (recommended)** | HandleScope 0.3.0 is compiled into `SessionDock.exe`. SessionDock starts one non-elevated, parent-owned child and supplies bootstrap data through an inherited anonymous pipe. |
+| Runtime source | **Standalone HandleScope (advanced)** | SessionDock connects to an already installed/running standalone API through `%LOCALAPPDATA%\HandleScope\connection.json` and never mutates its lifecycle. |
+| API | **Automatic**, `v2`, or `v1` | Chooses only an operation adapter compiled into SessionDock; it never selects or downloads a package. |
 
-The API must therefore be running before the Roblox launch if the post-launch
-action is expected to run. HandleScope remains optional and SessionDock must
-never embed its files, elevate it, uninstall it, downgrade it, silently change
-it, or make a Roblox launch depend on it.
+Included mode must satisfy every control below:
 
-Starting with HandleScope v0.2.2, a compatible release published from the
-canonical `Makmatoe/SessionDock` repository may dynamically select among
-reviewed HandleScope releases only when all of these controls are present:
+1. The synchronized source is pinned to an immutable HandleScope tag and commit
+   by `SessionDock.HandleScope/handlescope-upstream.json`, including an allowlisted file
+   inventory and hashes.
+2. The engine is part of the verified `SessionDock.exe` bytes. No HandleScope
+   executable, installer, script, component directory, service, scheduled task,
+   autostart entry, or separate updater is published or created.
+3. The child verifies its exact current-user/current-session parent, refuses
+   elevation/service/session 0, binds only to ephemeral numeric IPv4 loopback,
+   and exits when disabled or when the parent lifetime ends.
+4. The rotating token is transferred through the inherited pipe and remains in
+   parent/child memory. It is never written to disk, a command line, environment
+   variable, preference, log, diagnostics, export, or UI.
+5. SessionDock authenticates metadata and health before an operation and exposes
+   only the fixed `roblox-singleton-event-v1` policy and compiled v1/v2 routes.
 
-SessionDock 2.9.0 and later may select HandleScope 0.3.x through the native
-setup capability after that separate SessionDock release is published.
-SessionDock 2.8.x remains bound to its authenticated HandleScope 0.2.2 fallback
-and must not infer native-setup support.
+Advanced standalone mode must satisfy every control below:
 
-1. A dedicated user action opens a confirmation that names the exact selected
-   HandleScope version and explains that continuing will download, install or
-   replace the per-user API, start it immediately, and enable its limited
-   per-user autostart task.
-2. SessionDock ships an authenticated bootstrap catalog and may replace it only
-   with a bounded, strictly parsed, rollback-resistant compatibility catalog
-   signed by the SessionDock release key. The catalog can approve or revoke
-   immutable `Makmatoe/HandleScope` releases, bind SessionDock version ranges,
-   and select only API adapters already compiled into SessionDock. Remote data
-   must never define endpoint paths, request schemas, or response parsers.
-3. Every catalog entry pins the exact canonical Windows x64 package, checksum,
-   API executable, required HandleScope release manifest for non-legacy
-   releases, protocol contracts, and required capabilities. A native-setup
-   entry must additionally bind the schema-v2 manifest's exact
-   `api/HandleScope.Setup.exe` size and SHA-256 digest and require
-   `handlescope.setup.native.v1`. SessionDock must reject a different version,
-   repository, asset name, byte length, SHA-256 digest, checksum entry,
-   capability, or non-approved HTTPS download redirect. A missing
-   `Content-Length` is acceptable only when the bounded stream ends at the exact
-   selected length and hash; a present contradictory length must be rejected.
-4. Before any extracted file runs, SessionDock must enforce a bounded safe ZIP
-   layout, cap entry count and total expanded bytes, reject filesystem links and
-   unexpected entries, and verify the complete internal `CONTENTS.sha256`
-   inventory. It must keep the archive, executable files, exact tree, and
-   ancestor directories locked and revalidate their identities and hashes before
-   and after each child phase.
-5. For a native-setup release, a compiled SessionDock adapter—not catalog
-   metadata—selects only `api\HandleScope.Setup.exe`. It runs `verify`, then
-   runs `install --start-now --enable-autostart` only after the confirmation.
-   Both native phases use direct process creation as the current standard user,
-   with no shell, PowerShell, arbitrary path, or remotely supplied argument.
-6. The separately compiled legacy adapter remains limited to the catalog-bound
-   v0.1.4 and v0.2.2 PowerShell installers. It may set process-scoped
-   `RemoteSigned` for those already verified local scripts, but never `Bypass`
-   or `Unrestricted`; it cannot change saved policy, override `MachinePolicy` or
-   `UserPolicy`, or request elevation.
-7. Neither adapter may enable SessionDock integration during installation; the
-   local opt-in remains a separate explicit user action. Native setup must not
-   receive `--enable-sessiondock`, and the legacy adapter must not pass
-   `-EnableSessionDock`.
-8. Automatic mode may refresh the signed recommendation only after an explicit
-   **Check versions** action. Opening the panel and **Refresh** remain local-only.
-   Automatic mode must never install. Exact-version and API selectors are stored
-   separately from the legacy minimal `handlescope.json` opt-in so older clients
-   continue to accept it.
-9. Every installation or replacement requires a new version-specific
-   confirmation. SessionDock must not use an unauthenticated mutable latest
-   download, silently update or retry an installation, downgrade an installed
-   release, or run other HandleScope start, stop, update, uninstall, or
-   task-management commands.
+1. The user installs, starts, updates, and removes HandleScope independently.
+2. SessionDock never downloads, installs, starts, stops, updates, downgrades,
+   reconfigures, or uninstalls it, and never changes its scheduled task or API
+   compatibility preference.
+3. SessionDock strictly validates the protected discovery file and
+   same-user/same-session process before sending its bearer token only to the
+   numeric-loopback API.
+4. Authenticated metadata must identify a compatible reviewed runtime and can
+   select only a locally compiled adapter and the fixed policy.
 
-The same confirmed flow may replace an older supported per-user installation
-through HandleScope's own fail-closed installer. It never passes
-`--allow-downgrade` or legacy `-AllowDowngrade`. A user may always choose an
-older version for a clean install or choose the manual verified installation
-path, but replacing a newer installed release with an older one remains
-refused.
+The signed compatibility catalog remains available for older SessionDock
+clients and reviewed advanced-standalone identities. It remains authorization
+data rather than executable policy and cannot define a path, command, argument,
+endpoint, parser, or new capability. SessionDock 3.0's included flow never
+downloads or executes from it; the removed in-app downloader/installer must not
+be reintroduced.
+
+For backwards compatibility, the first 3.0 run preserves an old Keep
+installed/Exact selection as standalone. An enabled Automatic setup also stays
+standalone when its current API passes the bounded migration probe. A fresh or
+otherwise unselected setup uses included mode. SessionDock then stores the
+explicit source without changing any standalone file, process, or task.
 
 SessionDock remains usable when HandleScope is absent, stopped, incompatible,
 busy, or denies a request. Those conditions skip or fail only the optional
@@ -109,22 +81,24 @@ For every launch operation, SessionDock must:
 1. Require the positive PID returned by the successful Roblox launch.
 2. Verify that PID is a live, current-session `RobloxPlayerBeta` process and
    derive the exact Windows session number from it.
-3. Read the connection document again; never cache its bearer token or port.
-4. Reject a reparse-point connection file and accept only discovery API version
-   `v1`; the five-field document is not extended.
+3. For included mode, obtain the endpoint and token only from the authenticated
+   in-memory parent/child bootstrap state; verify the exact owned child and never
+   create or consult `connection.json`.
+4. For standalone mode, re-read the connection document for every operation;
+   reject a reparse-point file, require the exact five-field v1 discovery
+   schema, and never cache its bearer token or port.
 5. Accept only an absolute URL of the form `http://127.0.0.1:<port>` with no user
    info, non-root path, query, or fragment.
-6. Confirm that the connection document's separate API PID names a live
-   `HandleScope.Api` process.
+6. Confirm the runtime PID is the exact live included child or the validated
+   same-user/same-session standalone `HandleScope.Api` process selected by the
+   user.
 7. Disable proxies, redirects, and cookies, and apply short timeouts and bounded
    response sizes.
-8. Call `/v1/health` and require its exact three-field legacy shape and policy
-   `roblox-singleton-event-v1` before sending the bearer token.
-9. For an authenticated catalog identity newer than the legacy fallback, call
-   `/v1/metadata`, require its exact schema, cross-check the reported product
-   version, protocol list, policy, and capabilities against the executable hash
-   and signed catalog, then select only a compiled `/v1` or `/v2` adapter. A 404
-   falls back to v1 only for the separately authenticated legacy v0.1.4 runtime.
+8. Call `/v1/health` and require its exact shape and policy
+   `roblox-singleton-event-v1` before any close request.
+9. Authenticate `/v1/metadata`, require its exact schema, cross-check reported
+   product version, protocol list, policy, and capabilities against the selected
+   source identity, then select only the compiled `/v1` or `/v2` adapter.
 10. Send an exact-PID request with `allProcesses: false`. Require the successful
    dry-run response to contain a 43-character base64url `planId`, then send the
    identical selector with `dryRun: false` and that `planId` within five seconds.
@@ -132,9 +106,9 @@ For every launch operation, SessionDock must:
    the newly launched process to create its event.
 11. Require the execution response to report the launched PID in `closed`, at
     least one closure, and no failures.
-12. Only after step 11 succeeds, optionally read and validate a fresh connection
-    document and perform a second dry-run/execution pair using the fixed process
-    name and `allProcesses: true`.
+12. Only after step 11 succeeds, revalidate the selected runtime (and re-read
+    standalone discovery when applicable), then optionally perform a second
+    dry-run/execution pair using the fixed process name and `allProcesses: true`.
 13. Never persist, display, log, export, or send the bearer token or short-lived
     plan IDs to any other address.
 
@@ -146,13 +120,27 @@ validation, policy checks, safe HTTP options, and dry-run-before-execution
 contract—including plan-ID binding—for manual use; SessionDock does not invoke
 or copy that script.
 
-## Explicit local setup
+## Setup by source
+
+### Included with SessionDock (recommended)
+
+1. Install SessionDock 3.0 or later.
+2. Open **Integrations > HandleScope integration**.
+3. Keep **Included with SessionDock (recommended)** selected.
+4. Choose **Automatic**, `v2`, or `v1`.
+5. Select **Enable**. SessionDock checks readiness automatically; wait for
+   **Ready** or use **Retry** after a bounded failure.
+
+Do not run a HandleScope installer or PowerShell script, approve UAC, or create
+an autostart task. SessionDock owns the child and stops it on disable or exit.
+
+### Standalone HandleScope (advanced)
 
 Use a normal, non-administrator terminal. Choose commands from one of
 the following locations; do not mix an extracted-bundle path with an installed
-path.
+path. These commands are not needed for included mode.
 
-### From an extracted release bundle
+#### From an extracted release bundle
 
 Run these commands from the root of the extracted HandleScope release:
 
@@ -164,7 +152,7 @@ Run these commands from the root of the extracted HandleScope release:
 Add `--enable-autostart` if the API should also start automatically at sign-in.
 The install command creates the installed API location documented below.
 
-### After the per-user API is installed
+#### After the per-user API is installed
 
 These absolute commands work only after installation:
 
@@ -199,9 +187,10 @@ autostart commands.
 
 ## Fixed command mapping
 
-The following installed-client examples illustrate SessionDock's two request
+The following standalone-client examples illustrate SessionDock's two request
 selectors. They are diagnostic/manual equivalents, not commands SessionDock
-runs. Replace `1234` with the PID returned by the successful Roblox launch:
+runs and not part of included-mode setup. Replace `1234` with the PID returned
+by the successful Roblox launch:
 
 ```powershell
 $launchedPid = 1234
@@ -245,11 +234,12 @@ masks, or paths as integration settings; the server rejects them.
 
 ## Failure behavior
 
-Treat a missing or stale connection file, unavailable launched PID, unexpected
-health policy, Roblox executable trust or HandleScope install problem, `401`,
-`403`, `404`, `409`, `429`, timeout, or malformed response as a denied optional
-post-launch operation. Do not fall back to killing Roblox, closing a raw handle,
-using an administrator helper, or invoking an unrelated HandleScope copy.
+Treat a missing/stale standalone connection file, failed included parent/pipe
+state, unavailable launched PID, unexpected health policy, Roblox executable
+trust or runtime identity problem, `401`, `403`, `404`, `409`, `429`, timeout,
+or malformed response as a denied optional post-launch operation. Do not fall
+back to killing Roblox, closing a raw handle, using an administrator helper, or
+invoking an unrelated HandleScope copy.
 
 The PID-scoped operation succeeds only when execution returns `200`, reports at
 least one closure, includes the launched PID in `closed`, and reports no
